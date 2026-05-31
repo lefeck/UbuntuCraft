@@ -1,0 +1,60 @@
+#cloud-config
+autoinstall:
+  identity:
+    hostname: jammy-server-raid-bond
+    password: $6$5lpwCLsKLEzMkSJc$keOAhA6aO/5RocGThmhVA7LSNuW911Rx5HHXFEa75oGK20cEdAAgn14H5f5nGeq6QgcSyLPrWcg1.JvjXbhrN/
+    realname: Ubuntu user
+    username: ubuntu
+  keyboard:
+    layout: hu
+    toggle: null
+    variant: ''
+  locale: hu_HU.UTF-8
+  network:
+    ethernets:
+      # Note: This NIC name ens136 is my custom name, during installation, if you specify the config-network.sh script, it will
+      # be automatically changed to the first NIC name of the machine itself
+      ens160:
+        addresses:
+          - 192.168.10.100/24
+        routes:
+          - to: default
+            via: 192.168.10.1
+        nameservers:
+          addresses:
+            - 114.114.114.114
+          search: []
+    version: 2
+  ssh:
+    allow-pw: false
+    authorized-keys: []
+    install-server: true
+  storage:
+    config:
+    - { ptable: gpt, path: /dev/vda, wipe: superblock-recursive, preserve: false, name: '', grub_device: true, type: disk, id: disk-vda }
+    - { ptable: gpt, path: /dev/vdb, wipe: superblock-recursive, preserve: false, name: '', grub_device: true, type: disk, id: disk-vdb }
+    - { device: disk-vda, size: 536870912, wipe: superblock, flag: boot, number: 1, preserve: false, grub_device: true, type: partition, id: partition-3 }
+    - { fstype: fat32, volume: partition-3, preserve: false, type: format, id: format-2 }
+    - { device: disk-vdb, size: 536870912, wipe: superblock, flag: boot, number: 1, preserve: false, grub_device: true, type: partition, id: partition-8 }
+    - { fstype: fat32, volume: partition-8, preserve: false, type: format, id: format-5 }
+    - { device: disk-vda, size: 1073741824, wipe: superblock, flag: '', number: 2, preserve: false, grub_device: false, type: partition, id: partition-9 }
+    - { device: disk-vdb, size: 1073741824, wipe: superblock, flag: '', number: 2, preserve: false, grub_device: false, type: partition, id: partition-10 }
+    - { device: disk-vda, size: -1, wipe: superblock, flag: '', number: 3, preserve: false, grub_device: false, type: partition, id: partition-11 }
+    - { device: disk-vdb, size: -1, wipe: superblock, flag: '', number: 3, preserve: false, grub_device: false, type: partition, id: partition-12 }
+    - { name: md0, raidlevel: raid1, devices: [ partition-10, partition-9 ], spare_devices: [], preserve: false, wipe: superblock, type: raid, id: raid-0 }
+    - { name: md1, raidlevel: raid1, devices: [ partition-11, partition-12 ], spare_devices: [], preserve: false, wipe: superblock, type: raid, id: raid-1 }
+    - { fstype: ext4, volume: raid-0, preserve: false, type: format, id: format-3 }
+    - { name: vg0, devices: [ raid-1 ], preserve: false, type: lvm_volgroup, id: lvm_volgroup-0 }
+    - { name: lv-0, volgroup: lvm_volgroup-0, size: 10737418240, wipe: superblock, preserve: false, type: lvm_partition, id: lvm_partition-0 }
+    - { fstype: ext4, volume: lvm_partition-0, preserve: false, type: format, id: format-4 }
+    - { path: /, device: format-4, type: mount, id: mount-4 }
+    - { path: /boot, device: format-3, type: mount, id: mount-3 }
+    - { path: /boot/efi, device: format-2, type: mount, id: mount-2 }
+    - { path: /boot/efi2, device: format-5, type: mount, id: mount-5 }
+    - { name: swap, volgroup: lvm_volgroup-0, size: 1073741824, wipe: superblock, preserve: false, type: lvm_partition, id: lvm_partition-1 }
+    - { fstype: swap, volume: lvm_partition-1, preserve: false, type: format, id: format-6 }
+    - { path: none, device: format-6, type: mount, id: mount-6 }
+  late-commands:
+  - echo "ubuntu ALL=(ALL) NOPASSWD:ALL" > /target/etc/sudoers.d/ubuntu-nopw
+  - chmod 440 /target/etc/sudoers.d/ubuntu-nopw
+  version: 1

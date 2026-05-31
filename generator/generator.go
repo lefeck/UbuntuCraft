@@ -4,10 +4,12 @@ import (
 	"bytes"
 	"compress/gzip"
 	"crypto/md5"
+	"encoding/base64"
 	"fmt"
 	"io"
 
 	"github.com/lefeck/ubuntu-autoinstaller/cmd"
+	"github.com/lefeck/ubuntu-autoinstaller/config"
 	"github.com/lefeck/ubuntu-autoinstaller/logger"
 	"github.com/lefeck/ubuntu-autoinstaller/utils"
 
@@ -411,9 +413,52 @@ func (g *Generator) verifySHA256Checksum(shaSumsFile, digest string) error {
 
 // ExtractISO extracts ISO contents into the build directory and fixes permissions.
 func (gen *Generator) ExtractISO(codename string, sourceISO string) error {
+	buildDir := gen.Path.BuildDir()
 	boot := gen.Path.Boot()
+	packagesDir := gen.Path.Packages()
+	scriptsDir := gen.Path.Scripts()
 
 	logger.Info("Extracting ISO image...")
+
+	// Preserve user-created directories under mnt before cleaning build dir
+	// These directories are created by the user via Embedded Files feature
+	// and should not be deleted during ISO extraction
+	packagesFiles := make(map[string][]byte)
+	scriptsFiles := make(map[string][]byte)
+
+	// Backup packages directory contents
+	if err := backupDirContents(packagesDir, packagesFiles); err != nil {
+		logger.Warnf("Failed to backup packages directory: %v", err)
+	}
+
+	// Backup scripts directory contents
+	if err := backupDirContents(scriptsDir, scriptsFiles); err != nil {
+		logger.Warnf("Failed to backup scripts directory: %v", err)
+	}
+
+	// Clean up build directory before extraction to ensure fresh state
+	if err := os.RemoveAll(buildDir); err != nil {
+		logger.Warnf("Failed to clean build directory: %v", err)
+	}
+	if err := os.MkdirAll(buildDir, DefaultDirPerm); err != nil {
+		return fmt.Errorf("failed to create build directory: %w", err)
+	}
+
+	// Restore the preserved directories (mnt/packages, mnt/script)
+	if err := os.MkdirAll(packagesDir, DefaultDirPerm); err != nil {
+		return fmt.Errorf("failed to create packages directory: %w", err)
+	}
+	if err := os.MkdirAll(scriptsDir, DefaultDirPerm); err != nil {
+		return fmt.Errorf("failed to create scripts directory: %w", err)
+	}
+
+	// Restore backed up files
+	if err := restoreDirContents(packagesDir, packagesFiles); err != nil {
+		logger.Warnf("Failed to restore packages directory: %v", err)
+	}
+	if err := restoreDirContents(scriptsDir, scriptsFiles); err != nil {
+		logger.Warnf("Failed to restore scripts directory: %v", err)
+	}
 
 	// Choose extractor by codename
 	if err := gen.extractISOImage(codename, sourceISO); err != nil {
@@ -428,7 +473,48 @@ func (gen *Generator) ExtractISO(codename string, sourceISO string) error {
 		return err
 	}
 
-	logger.Infof("Extracted to %s", gen.Path.BuildDir())
+	logger.Infof("Extracted to %s", buildDir)
+	return nil
+}
+
+// backupDirContents recursively reads all files under srcDir and stores them in the backup map.
+// Keys are relative paths from srcDir.
+func backupDirContents(srcDir string, backup map[string][]byte) error {
+	if _, err := os.Stat(srcDir); os.IsNotExist(err) {
+		return nil
+	}
+	return filepath.Walk(srcDir, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+		if info.IsDir() {
+			return nil
+		}
+		relPath, err := filepath.Rel(srcDir, path)
+		if err != nil {
+			return err
+		}
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		backup[relPath] = data
+		return nil
+	})
+}
+
+// restoreDirContents writes all files from the backup map into destDir.
+func restoreDirContents(destDir string, backup map[string][]byte) error {
+	for relPath, data := range backup {
+		targetPath := filepath.Join(destDir, relPath)
+		parentDir := filepath.Dir(targetPath)
+		if err := os.MkdirAll(parentDir, DefaultDirPerm); err != nil {
+			return err
+		}
+		if err := os.WriteFile(targetPath, data, DefaultFilePerm); err != nil {
+			return err
+		}
+	}
 	return nil
 }
 
@@ -448,6 +534,7 @@ func (g *Generator) extractISOImage(codename string, sourceISO string) error {
 	default:
 		logger.Info("Extracting ISO using 7z...")
 		s7zCmd := fmt.Sprintf(S7zCmdTemplate, sourceISO, buidDir)
+		fmt.Println(s7zCmd)
 		_, _, err := g.executor.RunCmd(s7zCmd)
 		if err != nil {
 			logger.Errorf("Failed to extract ISO using 7z: %v", err)
@@ -619,6 +706,65 @@ func (gen *Generator) AddConfigData(codename string) error {
 // InjectNoCloudConfig is an alias for AddConfigData.
 func (gen *Generator) InjectNoCloudConfig(codename string) error {
 	return gen.AddConfigData(codename)
+}
+
+// InjectEmbeddedFiles writes custom user files into the ISO under build/mnt/<path>.
+// Files are placed under /mnt/ in the ISO root directory so they are accessible
+// via /mnt/<path> during early-commands and late-commands execution.
+func (gen *Generator) InjectEmbeddedFiles(files []config.EmbeddedFile) error {
+	if len(files) == 0 {
+		logger.Info("No embedded files to inject, skipping")
+		return nil
+	}
+
+	logger.Infof("Injecting %d embedded file(s) into ISO...", len(files))
+
+	for _, f := range files {
+		// Build absolute target path: <builddir>/mnt/<path>
+		targetPath := filepath.Join(gen.Path.Mount(), f.Path)
+
+		// Create parent directories if they don't exist
+		parentDir := filepath.Dir(targetPath)
+		if err := os.MkdirAll(parentDir, DefaultDirPerm); err != nil {
+			return fmt.Errorf("failed to create directory %s: %w", parentDir, err)
+		}
+
+		// Decode content if base64 encoded
+		var fileContent []byte
+		if f.Encoding == "base64" {
+			decoded, err := base64.StdEncoding.DecodeString(f.Content)
+			if err != nil {
+				return fmt.Errorf("failed to base64-decode content for %s: %w", f.Path, err)
+			}
+			fileContent = decoded
+		} else {
+			// Default to text mode
+			fileContent = []byte(f.Content)
+		}
+
+		// Write file content
+		if err := os.WriteFile(targetPath, fileContent, DefaultFilePerm); err != nil {
+			return fmt.Errorf("failed to write file %s: %w", f.Path, err)
+		}
+
+		// Set file permission (default to 0644 if not specified)
+		permStr := f.Permission
+		if permStr == "" {
+			permStr = "0644"
+		}
+		var perm os.FileMode
+		if _, err := fmt.Sscanf(permStr, "%o", &perm); err != nil {
+			perm = 0644
+		}
+		if err := os.Chmod(targetPath, perm); err != nil {
+			return fmt.Errorf("failed to set permissions on %s: %w", f.Path, err)
+		}
+
+		logger.Infof("  injected: %s (perm=%s, encoding=%s, size=%d bytes)", f.Path, permStr, f.Encoding, len(fileContent))
+	}
+
+	logger.Info("Successfully injected all embedded files")
+	return nil
 }
 
 // DownloadAndPreparePackages downloads packages, builds a local repo and creates install script.

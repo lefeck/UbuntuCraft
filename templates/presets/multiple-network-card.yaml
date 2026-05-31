@@ -1,0 +1,167 @@
+# Enterprise Configuration Template
+# Enterprise-ready Ubuntu Server with security hardening
+
+autoinstall:
+  version: 1
+  apt:
+    disable_components: []
+    disable_suites: []
+    geoip: true
+    preserve_sources_list: false
+    primary:
+      - arches: ["amd64", "i386"]
+        uri: "http://archive.ubuntu.com/ubuntu"
+      - arches: ["default"]
+        uri: "http://ports.ubuntu.com/ubuntu-ports"
+  drivers:
+    install: true
+  identity:
+    hostname: "enterprise-server"
+    password: "$6$FnHPy.4giHfDcI8r$vllY94AceZFt20M6WzxXKfOLuycO7o8QD8RJJwVs/DSGcHNNF4ilbGrukXPMA3irAdiimHo0fl2zUdkbRO9vh1"
+    realname: "admin"
+    username: "admin"
+  kernel:
+    package: "linux-generic-hwe-24.04"
+  keyboard:
+    layout: "us"
+    toggle: ""
+    variant: ""
+  locale: "en_US.UTF-8"
+  network:
+    bonds:
+      bond0:
+        addresses:
+        - 192.168.1.5/24
+        routes:
+          - to: default
+            via: 192.168.1.1
+        interfaces:
+        - ens10
+        - ens3
+        nameservers:
+          addresses:
+          - 192.168.1.2
+          search:
+          - example.com
+        parameters:
+          mode: balance-rr
+    ethernets:
+      ens10: {}
+      ens3: {}
+    version: 2
+  ssh:
+    allow-pw: false
+    authorized-keys:
+      - "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQ..."
+    install-server: true
+  storage:
+    config:
+      - type: "disk"
+        id: "disk0"
+        grub_device: true
+        ptable: "gpt"
+        wipe: "superblock-recursive"
+        match:
+          size: "largest"
+      - type: "partition"
+        id: "bios-grub-part"
+        device: "disk0"
+        number: 1
+        size: 1048576
+        flag: "bios_grub"
+        preserve: false
+        wipe: "superblock"
+      - type: "partition"
+        id: "boot-part"
+        device: "disk0"
+        number: 2
+        size: 2147483648
+        preserve: false
+        wipe: "superblock"
+      - type: "format"
+        id: "boot-fs"
+        volume: "boot-part"
+        fstype: "ext4"
+        preserve: false
+      - type: "partition"
+        id: "pv-part"
+        device: "disk0"
+        number: 3
+        size: -1
+        preserve: false
+        wipe: "superblock"
+      - type: "lvm_volgroup"
+        id: "vg0"
+        name: "ubuntu-vg"
+        devices: ["pv-part"]
+        preserve: false
+      - type: "lvm_partition"
+        id: "lv-swap"
+        volgroup: "vg0"
+        name: "swap"
+        size: 4294967296
+        preserve: false
+        wipe: "superblock"
+      - type: "format"
+        id: "fs-swap"
+        volume: "lv-swap"
+        fstype: "swap"
+        preserve: false
+      - type: "lvm_partition"
+        id: "lv-root"
+        volgroup: "vg0"
+        name: "ubuntu-lv"
+        size: 53687091200
+        preserve: false
+        wipe: "superblock"
+      - type: "format"
+        id: "fs-root"
+        volume: "lv-root"
+        fstype: "ext4"
+        preserve: false
+      - type: "lvm_partition"
+        id: "lv-var"
+        volgroup: "vg0"
+        name: "var"
+        size: -1
+        preserve: false
+        wipe: "superblock"
+      - type: "format"
+        id: "fs-var"
+        volume: "lv-var"
+        fstype: "ext4"
+        preserve: false
+      - type: "dm_crypt"
+        id: "dm_crypt-0"
+        volume: "lv-root"
+        key: "ubuntu"
+        preserve: false
+      - type: "mount"
+        id: "mount-root"
+        path: "/"
+        device: "fs-root"
+        preserve: false
+      - type: "mount"
+        id: "mount-boot"
+        path: "/boot"
+        device: "boot-fs"
+        preserve: false
+      - type: "mount"
+        id: "mount-swap"
+        path: none
+        device: "fs-swap"
+        preserve: false
+      - type: "mount"
+        id: "mount-var"
+        path: "/var"
+        device: "fs-var"
+        preserve: false
+    swap:
+      size: 0
+    grub:
+      reorder_uefi: false
+  updates: "security"
+  shutdown: "reboot"
+  packages: []
+  early-commands: []
+  late-commands:  []

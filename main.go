@@ -2,6 +2,7 @@ package main
 
 import (
 	"flag"
+
 	"github.com/gin-gonic/gin"
 	"github.com/lefeck/ubuntu-autoinstaller/api"
 	"github.com/lefeck/ubuntu-autoinstaller/logger"

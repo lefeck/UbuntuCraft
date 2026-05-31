@@ -15,7 +15,7 @@ let appState = {
  */
 async function initApp() {
     try {
-        console.log('Initializing AutoISO application...');
+        console.log('Initializing UbuntuCraft application...');
         
         // Wait for DOM to be ready
         if (document.readyState === 'loading') {
@@ -33,19 +33,22 @@ async function initApp() {
         
         // Set up event listeners
         setupEventListeners();
-        
-        // Load default configuration
-        await loadDefaultConfiguration();
-        
-        // Initialize all configurations to ensure default templates are displayed
+
+        // Initialize all configurations first (loads tab DOMs async)
+        // This MUST complete before loadDefaultConfiguration so that
+        // StorageManager.loadFromConfig / NetworkManager.loadFromConfig
+        // can find the DOM elements when applyAutoinstallConfigToUI is called
         if (window.ConfigManager && window.ConfigManager.initializeAllConfigs) {
-            window.ConfigManager.initializeAllConfigs();
+            await window.ConfigManager.initializeAllConfigs();
         }
-        
+
+        // Load default configuration (depends on DOM elements from above)
+        await loadDefaultConfiguration();
+
         // Mark as initialized
         appState.initialized = true;
         
-        console.log('AutoISO application initialized successfully');
+        console.log('UbuntuCraft application initialized successfully');
         
     } catch (error) {
         console.error('Failed to initialize application:', error);
@@ -330,6 +333,8 @@ function handleKeyboardShortcuts(event) {
     
     // Tab navigation with arrow keys
     if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') {
+        var tag = document.activeElement ? document.activeElement.tagName.toLowerCase() : '';
+        if (tag === 'input' || tag === 'textarea' || tag === 'select') return;
         const currentTab = document.querySelector('.tab.active');
         if (currentTab) {
             const tabs = Array.from(document.querySelectorAll('.tab'));
@@ -466,7 +471,7 @@ function setAppState(newState) {
 }
 
 // Export main functions
-window.AutoISO = {
+window.UbuntuCraft = {
     initApp,
     getAppState,
     setAppState,
@@ -475,6 +480,69 @@ window.AutoISO = {
     handleValidateConfig,
     handleLoadDefaults
 };
+
+// Page-level navigation
+var AppNavigation = {
+    switchPage: function(page) {
+        console.log('AppNavigation.switchPage called with:', page);
+        var pages = document.querySelectorAll('.content-page');
+        pages.forEach(function(p) { p.classList.remove('active'); });
+        var target = document.querySelector('.content-page[data-page="' + page + '"]');
+        console.log('Target element:', target);
+        if (target) target.classList.add('active');
+
+        var sidebarItems = document.querySelectorAll('.sidebar-item');
+        sidebarItems.forEach(function(s) { s.classList.remove('active'); });
+        var activeSidebar = document.querySelector('.sidebar-item[data-page="' + page + '"]');
+        if (activeSidebar) activeSidebar.classList.add('active');
+
+        // Load templates content if switching to templates page
+        if (page === 'templates') {
+            console.log('Switching to templates page, calling loadTemplatesPage()');
+            loadTemplatesPage();
+        }
+    }
+};
+window.AppNavigation = AppNavigation;
+
+// Load templates page content
+async function loadTemplatesPage() {
+    const container = document.getElementById('templatesContent');
+    if (!container) {
+        console.error('templatesContent container not found');
+        return;
+    }
+
+    console.log('loadTemplatesPage called, loaded:', container.dataset.loaded);
+
+    // Force reload by removing the flag
+    // if (container.dataset.loaded) {
+    //     container.dataset.loaded = '';
+    // }
+
+    try {
+        const response = await fetch('/static/views/templates.html');
+        console.log('fetch templates.html status:', response.status);
+        if (response.ok) {
+            const html = await response.text();
+            console.log('templates.html loaded, length:', html.length);
+            container.innerHTML = html;
+            container.dataset.loaded = 'true';
+
+            // Initialize TemplatesManager
+            if (window.TemplatesManager) {
+                console.log('Calling TemplatesManager.init()');
+                TemplatesManager.init();
+            } else {
+                console.error('TemplatesManager not found on window');
+            }
+        } else {
+            console.error('Failed to load templates.html:', response.status);
+        }
+    } catch (error) {
+        console.error('Failed to load templates page:', error);
+    }
+}
 
 // Auto-initialize when script loads
 if (document.readyState === 'loading') {

@@ -10,7 +10,7 @@ const API_BASE = '/api/v1';
 let globalConfig = {
     basic: {
         username: 'ubuntu',
-        password: 'ubuntu123',
+        password: '',
         hostname: 'ubuntu-server',
         realname: 'ubuntu',
         locale: 'en_US.UTF-8',
@@ -91,6 +91,8 @@ async function loadView(tabName, templatePath, callback, forceReload = false) {
  * Set default values for specific tabs
  */
 function setDefaultValues(tabName) {
+    if (window.configModified) return;  // skip if a template was applied
+
     switch (tabName) {
         case 'basic':
             // Set Basic Configuration defaults
@@ -137,6 +139,7 @@ function setDefaultValues(tabName) {
             // Set default values for Early/Late Commands and User Data Commands
             const lateCommands = document.getElementById('lateCommands');
             const earlyCommands = document.getElementById('earlyCommands');
+            const errorCommands = document.getElementById('errorCommands');
 
             if (earlyCommands) {
                 earlyCommands.value = '';
@@ -144,6 +147,10 @@ function setDefaultValues(tabName) {
             
             if (lateCommands) {
                 lateCommands.value = '';
+            }
+
+            if (errorCommands) {
+                errorCommands.value = '';
             }
             
             
@@ -155,15 +162,24 @@ function setDefaultValues(tabName) {
             break;
             
         case 'storage':
-            // Set default values for Storage Configuration only if not already set
+            // Set default values for Storage Configuration
+            const swapFilename = document.getElementById('swapFilename');
             const swapSize = document.getElementById('swapSize');
             const swapSizeUnit = document.getElementById('swapSizeUnit');
+            const swapMaxsize = document.getElementById('swapMaxsize');
+            const swapMaxsizeUnit = document.getElementById('swapMaxsizeUnit');
+            const swapForce = document.getElementById('swapForce');
             const grubReorder = document.getElementById('grubReorder');
-            
+
+            // Swap configuration defaults
+            if (swapFilename) swapFilename.value = '/swap.img';
             if (swapSize && swapSize.value === '') swapSize.value = '0';
             if (swapSizeUnit && swapSizeUnit.value === '') swapSizeUnit.value = 'G';
+            if (swapMaxsize && swapMaxsize.value === '') swapMaxsize.value = '8';
+            if (swapMaxsizeUnit && swapMaxsizeUnit.value === '') swapMaxsizeUnit.value = 'G';
+            if (swapForce && swapForce.value === '') swapForce.value = 'false';
             if (grubReorder && grubReorder.value === '') grubReorder.value = 'false';
-            
+
             // Ensure storage configs container exists and initialize defaults
             const storageConfigs = document.getElementById('storageConfigs');
             if (storageConfigs) {
@@ -190,6 +206,7 @@ function setDefaultValues(tabName) {
  * Initialize basic configuration form
  */
 function initBasicConfig() {
+    if (window.configModified) return;  // skip if a template was applied
     const basicFields = {
         'username': 'ubuntu',
         'password': '',
@@ -419,10 +436,18 @@ function loadAptTab() {
 function loadNetworkTab() {
     loadView('network', '/static/views/network.html', () => {
         const container = document.getElementById('network');
-        if (container && container.dataset.initialized) return;
+        if (!container) return;
+        // Check if initialization is already done by either loaded or initialized flag
+        if (container.dataset.initialized === 'true') return;
+        // Double-check devices aren't already present (prevents race condition)
+        const existingDevice = container.querySelector('.network-device');
+        if (existingDevice) {
+            container.dataset.initialized = 'true';
+            return;
+        }
         if (window.NetworkManager && window.NetworkManager.initNetworkDevices) {
             window.NetworkManager.initNetworkDevices();
-            if (container) container.dataset.initialized = 'true';
+            container.dataset.initialized = 'true';
         }
     });
 }
@@ -483,65 +508,52 @@ function loadTabContent(tabName) {
 }
 
 /**
- * Initialize all configurations on page load
+ * Initialize all configurations on page load.
+ * Returns a Promise that resolves when all tab DOMs and managers are ready.
+ * Call with `await` before loading default config so DOM elements exist.
  */
-function initializeAllConfigs() {
+async function initializeAllConfigs() {
     console.log('Initializing all configurations on page load...');
-    
-    // Load Basic Configuration tab content
-    loadView('basic', '/static/views/basic.html', () => {
-        console.log('Basic Configuration loaded in initializeAllConfigs');
-        // Initialize basic configuration
-        initBasicConfig();
-    });
-    
-    // Initialize APT configuration
-    initAptConfig();
-    
-    // Force load all tab contents to ensure default configurations are displayed
-    console.log('Loading all tab contents to initialize defaults...');
-    
-    // Load Storage Configuration tab content and initialize
-    loadView('storage', '/static/views/storage.html', () => {
-        const storageContainer = document.getElementById('storage');
-        if (storageContainer && storageContainer.dataset.initialized) return;
-        console.log('Storage tab loaded, checking StorageManager...');
-        if (window.StorageManager && window.StorageManager.initStorageConfigs) {
-            console.log('Initializing storage configs in initializeAllConfigs');
-            setTimeout(() => {
+
+    // Load all tab contents in parallel (all use forceReload=true so they always refresh)
+    await Promise.all([
+        loadView('basic', '/static/views/basic.html', () => {
+            initBasicConfig();
+        }),
+        loadView('apt', '/static/views/apt.html', () => {
+            initAptConfig();
+        }),
+        loadView('storage', '/static/views/storage.html', () => {
+            // Wait for StorageManager to be available (set by script tag)
+            function tryInitStorage() {
+                const storageContainer = document.getElementById('storage');
+                if (storageContainer && storageContainer.dataset.initialized === 'true') return;
+                if (!window.StorageManager || !window.StorageManager.initStorageConfigs) {
+                    setTimeout(tryInitStorage, 50);
+                    return;
+                }
                 window.StorageManager.initStorageConfigs();
                 if (storageContainer) storageContainer.dataset.initialized = 'true';
-            }, 100);
-        } else {
-            console.error('StorageManager or initStorageConfigs not found in initializeAllConfigs');
-        }
-    });
-    
-    // Load Network Configuration tab content and initialize
-    loadView('network', '/static/views/network.html', () => {
-        const networkContainer = document.getElementById('network');
-        if (networkContainer && networkContainer.dataset.initialized) return;
-        if (window.NetworkManager && window.NetworkManager.initNetworkDevices) {
-            console.log('Initializing network devices in initializeAllConfigs');
-            window.NetworkManager.initNetworkDevices();
-            if (networkContainer) networkContainer.dataset.initialized = 'true';
-        }
-    });
-    
-    // Load Advanced Configuration tab content and initialize
-    loadView('advanced', '/static/views/advanced.html', () => {
-        // Advanced Configuration default values are set in setDefaultValues
-        console.log('Advanced Configuration loaded in initializeAllConfigs');
-    });
-    
-    // Load SSH Configuration tab content
-    loadView('ssh', '/static/views/ssh.html', () => {
-        console.log('SSH Configuration loaded in initializeAllConfigs');
-    });
-    
-    // Initialize ISO generation form
-    initISOForm();
-    
+            }
+            tryInitStorage();
+        }),
+        loadView('network', '/static/views/network.html', () => {
+            const networkContainer = document.getElementById('network');
+            if (!networkContainer || networkContainer.dataset.initialized === 'true') return;
+            if (networkContainer.querySelector('.network-device')) {
+                networkContainer.dataset.initialized = 'true';
+                return;
+            }
+            if (window.NetworkManager && window.NetworkManager.initNetworkDevices) {
+                window.NetworkManager.initNetworkDevices();
+                networkContainer.dataset.initialized = 'true';
+            }
+        }),
+        loadView('ssh', '/static/views/ssh.html'),
+        loadView('advanced', '/static/views/advanced.html'),
+        loadView('packages', '/static/views/packages.html'),
+    ]);
+
     console.log('All configurations initialized on page load');
 }
 
@@ -568,17 +580,66 @@ async function loadDefaultConfig() {
     try {
         const response = await fetch(`${API_BASE}/config/default`);
         const result = await response.json();
-        
-        if (result.success) {
-            // Parse YAML configuration and fill the form
-            const yamlData = result.config;
-            // Here you can add logic to parse YAML and fill the form
-            showStatus('configStatus', 'success', 'Default configuration loaded successfully');
-        } else {
-            showStatus('configStatus', 'error', result.error || 'Failed to load default configuration');
+
+        if (!result.success || !result.config) {
+            showStatus('configActionStatus', 'error', result.error || 'Failed to load default configuration');
+            return;
+        }
+
+        // Mark modified BEFORE loading views so setDefaultValues is skipped
+        window.configModified = true;
+
+        // Force-load ALL tab DOMs so elements exist before applying config
+        await Promise.all([
+            loadView('basic', '/static/views/basic.html', null, true),
+            loadView('apt', '/static/views/apt.html', null, true),
+            loadView('network', '/static/views/network.html', null, true),
+            loadView('storage', '/static/views/storage.html', null, true),
+            loadView('ssh', '/static/views/ssh.html', null, true),
+            loadView('advanced', '/static/views/advanced.html', null, true),
+            loadView('packages', '/static/views/packages.html', null, true),
+        ]);
+
+        // Parse YAML via backend to avoid duplicating YAML logic in JS
+        const parseResp = await fetch(`${API_BASE}/config/load`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ yamlData: result.config }),
+        });
+        const parseResult = await parseResp.json();
+
+        if (!parseResult.success || !parseResult.config) {
+            showStatus('configActionStatus', 'error', parseResult.error || 'Failed to parse default configuration');
+            return;
+        }
+
+        const auto = parseResult.config.autoinstall || {};
+
+        // Ensure core managers are loaded before applying config
+        const hasApt = !!(window.AptManager);
+        const hasNetwork = !!(window.NetworkManager && window.NetworkManager.loadFromConfig);
+        const hasStorage = !!(window.StorageManager && window.StorageManager.loadFromConfig);
+
+        if (!hasNetwork || !hasStorage) {
+            throw new Error('Managers not ready (NetworkManager/StorageManager). Refresh the page and try again.');
+        }
+
+        // Apply via the shared TemplatesManager API (fixes function-scope issues)
+        if (!window.TemplatesManager || typeof window.TemplatesManager.applyAutoinstallConfigToUI !== 'function') {
+            throw new Error('TemplatesManager not ready (applyAutoinstallConfigToUI missing). Refresh the page and try again.');
+        }
+        await window.TemplatesManager.applyAutoinstallConfigToUI(auto);
+
+        showStatus('configActionStatus', 'success', 'Default configuration loaded successfully');
+        if (typeof showNotification === 'function') {
+            showNotification('Default template loaded successfully!', 'success');
+        }
+
+        if (typeof AppNavigation !== 'undefined') {
+            AppNavigation.switchPage('config');
         }
     } catch (error) {
-        showStatus('configStatus', 'error', 'Failed to load default configuration: ' + error.message);
+        showStatus('configActionStatus', 'error', 'Failed to load default configuration: ' + error.message);
     }
 }
 
@@ -781,36 +842,43 @@ function buildConfig() {
             },
             storage: {
                 config: [],
-                swap: {
-                    swap: (() => {
-                        const swapSize = document.getElementById('swapSize')?.value;
-                        const swapUnit = document.getElementById('swapSizeUnit')?.value;
-                        if (swapSize && swapSize > 0) {
-                            const sizeValue = parseFloat(swapSize);
-                            if (sizeValue === -1) {
-                                return -1;
-                            } else {
-                                // Convert to bytes for backend compatibility
-                                let sizeInBytes = sizeValue;
-                                if (swapUnit === 'K') sizeInBytes *= 1024;
-                                else if (swapUnit === 'M') sizeInBytes *= 1048576;
-                                else if (swapUnit === 'G') sizeInBytes *= 1073741824;
-                                else if (swapUnit === 'T') sizeInBytes *= 1099511627776;
-                                return Math.round(sizeInBytes);
-                            }
-                        }
-                        return 0;
-                    })()
-                },
+                swap: (() => {
+                    const swapSize = document.getElementById('swapSize')?.value;
+                    const swapUnit = document.getElementById('swapSizeUnit')?.value;
+                    const swapFilename = document.getElementById('swapFilename')?.value || '/swap.img';
+                    const swapMaxsize = document.getElementById('swapMaxsize')?.value;
+                    const swapMaxsizeUnit = document.getElementById('swapMaxsizeUnit')?.value;
+                    const swapForce = document.getElementById('swapForce')?.value === 'true';
+
+                    // Build swap config only if size > 0
+                    if (swapSize && parseFloat(swapSize) > 0) {
+                        const sizeValue = parseFloat(swapSize);
+                        // Convert size to string with unit suffix (e.g., "8G")
+                        let sizeStr = sizeValue + swapUnit;
+
+                        // Convert maxsize to string with unit suffix
+                        let maxsizeStr = swapMaxsize + swapMaxsizeUnit;
+
+                        return {
+                            filename: swapFilename,
+                            size: sizeStr,
+                            maxsize: maxsizeStr,
+                            force: swapForce
+                        };
+                    }
+                    // If size is 0, set size to "0" to disable swap
+                    return { size: "0" };
+                })(),
                 grub: {
                     reorder_uefi: document.getElementById('grubReorder')?.value === 'true' || false
                 }
             },
             updates: document.getElementById('updates')?.value || 'security',
             shutdown: document.getElementById('shutdown')?.value || 'reboot',
-            packages: document.getElementById('packages')?.value?.split('\n').filter(p => p.trim()) || [],
+            packages: document.getElementById('autoinstallPackages')?.value?.split('\n').filter(p => p.trim()) || [],
             "early-commands": document.getElementById('earlyCommands')?.value?.split('\n').filter(c => c.trim()) || [],
-            "late-commands": document.getElementById('lateCommands')?.value?.split('\n').filter(c => c.trim()) || []
+            "late-commands": document.getElementById('lateCommands')?.value?.split('\n').filter(c => c.trim()) || [],
+            "error-commands": document.getElementById('errorCommands')?.value?.split('\n').filter(c => c.trim()) || []
         }
     };
     
@@ -864,25 +932,25 @@ function buildConfig() {
                 // Read corresponding fields based on storage type
                 switch (storageType) {
                     case 'disk':
-                        const device = storage.querySelector('.storage-device-input')?.value;
+                        const diskPath = storage.querySelector('.storage-path-input')?.value;
                         const grubDevice = storage.querySelector('.storage-grub-input')?.value;
                         const ptable = storage.querySelector('.storage-ptable-input')?.value;
                         const wipe = storage.querySelector('.storage-wipe-input')?.value;
                         const preserve = storage.querySelector('.storage-preserve-input')?.value;
                         const id = storage.querySelector('.storage-id-input')?.value;
-                        
-                        console.log(`buildConfig: Disk ${index} values:`, { id, device, grubDevice, ptable, wipe, preserve });
-                        
+
+                        console.log(`buildConfig: Disk ${index} values:`, { id, diskPath, grubDevice, ptable, wipe, preserve });
+
                         if (id) configItem.id = id;
-                        if (device) configItem.device = device;
+                        if (diskPath) configItem.path = diskPath;
                         if (grubDevice !== undefined) configItem.grub_device = grubDevice === 'true';
                         if (ptable) configItem.ptable = ptable;
                         if (wipe) configItem.wipe = wipe;
                         if (preserve !== undefined) configItem.preserve = preserve === 'true';
-                        
-                        // Read all match conditions
+
+                        // Read all match conditions (only if path is not set)
                         const matchRows = storage.querySelectorAll('.disk-match-row');
-                        if (matchRows.length > 0) {
+                        if (matchRows.length > 0 && !diskPath) {
                             const matchObj = {};
                             matchRows.forEach(row => {
                                 const type = row.querySelector('.disk-match-type')?.value;
@@ -928,6 +996,12 @@ function buildConfig() {
                         }
                         if (flag) configItem.flag = flag;
                         if (partitionWipe) configItem.wipe = partitionWipe;
+
+                        // GRUB device for partition
+                        const partitionGrubDevice = storage.querySelector('.storage-grub-device-input')?.value;
+                        if (partitionGrubDevice !== undefined) {
+                            configItem.grub_device = partitionGrubDevice === 'true';
+                        }
                         break;
                         
                     case 'format':
@@ -941,7 +1015,27 @@ function buildConfig() {
                         if (volume) configItem.volume = volume;
                         if (formatPreserve !== undefined) configItem.preserve = formatPreserve === 'true';
                         break;
-                        
+
+                    case 'raid':
+                        const raidName = storage.querySelector('.storage-raid-name-input')?.value;
+                        const raidLevel = storage.querySelector('.storage-raidlevel-input')?.value;
+                        const raidDevices = storage.querySelector('.storage-devices-input')?.value;
+                        const raidMetadata = storage.querySelector('.storage-raid-metadata-input')?.value;
+                        const raidPtable = storage.querySelector('.storage-ptable-input')?.value;
+                        const raidPreserve = storage.querySelector('.storage-preserve-input')?.value;
+                        const raidWipe = storage.querySelector('.storage-wipe-input')?.value;
+                        const raidId = storage.querySelector('.storage-id-input')?.value;
+
+                        if (raidId) configItem.id = raidId;
+                        if (raidName) configItem.name = raidName;
+                        if (raidLevel) configItem.raidlevel = raidLevel;
+                        if (raidDevices) configItem.devices = raidDevices.split('\n').map(d => d.trim()).filter(d => d);
+                        if (raidMetadata) configItem.metadata = raidMetadata;
+                        if (raidPtable) configItem.ptable = raidPtable;
+                        if (raidPreserve !== undefined) configItem.preserve = raidPreserve === 'true';
+                        if (raidWipe) configItem.wipe = raidWipe;
+                        break;
+
                     case 'mount':
                         const mountPoint = storage.querySelector('.storage-path-input')?.value;
                         const mountDevice = storage.querySelector('.storage-device-input')?.value;
@@ -1098,7 +1192,7 @@ async function validateConfig() {
         try {
             const result = await response.json();
             console.log('Response Body:', result);
-            showStatus('configStatus', result.success ? 'success' : 'error', result.message || result.error);
+            showStatus('configActionStatus', result.success ? 'success' : 'error', result.message || result.error);
             return { valid: !!result.success, errors: result.success ? [] : [result.message || result.error || 'Validation failed'] };
         } catch (parseError) {
             console.error('Failed to parse response:', parseError);
@@ -1106,10 +1200,10 @@ async function validateConfig() {
             console.log('Response parsing failed, using local validation');
             const localValidationResult = validateConfigLocally(config);
             if (localValidationResult.valid) {
-                showStatus('configStatus', 'success', 'Configuration is valid (local validation)');
+                showStatus('configActionStatus', 'success', 'Configuration is valid (local validation)');
                 return { valid: true, errors: [] };
             } else {
-                showStatus('configStatus', 'error', `Configuration validation failed: ${localValidationResult.errors.join(', ')}`);
+                showStatus('configActionStatus', 'error', `Configuration validation failed: ${localValidationResult.errors.join(', ')}`);
                 return { valid: false, errors: localValidationResult.errors };
             }
         }
@@ -1120,10 +1214,10 @@ async function validateConfig() {
         console.log('API validation error, using local validation');
         const localValidationResult = validateConfigLocally(config);
         if (localValidationResult.valid) {
-            showStatus('configStatus', 'success', 'Configuration is valid (local validation)');
+            showStatus('configActionStatus', 'success', 'Configuration is valid (local validation)');
             return { valid: true, errors: [] };
         } else {
-            showStatus('configStatus', 'error', `Configuration validation failed: ${localValidationResult.errors.join(', ')}`);
+            showStatus('configActionStatus', 'error', `Configuration validation failed: ${localValidationResult.errors.join(', ')}`);
             return { valid: false, errors: localValidationResult.errors };
         }
     }
@@ -1298,6 +1392,7 @@ async function previewUserData() {
                 previewElement.style.display = 'block';
             }
             showStatus('configStatus', 'success', 'Configuration preview generated successfully');
+            if (window.AppNavigation) window.AppNavigation.switchPage('preview');
         } else {
             showStatus('configStatus', 'error', result.error || 'Configuration preview failed');
         }
@@ -1656,7 +1751,8 @@ function createLocalConfigPreview(config) {
         previewElement.textContent = previewContent;
         previewElement.style.display = 'block';
         showStatus('configStatus', 'success', 'Local configuration preview generated');
-        
+        if (window.AppNavigation) window.AppNavigation.switchPage('preview');
+
     } catch (error) {
         console.error('Local preview generation error:', error);
         showStatus('configStatus', 'error', 'Failed to generate local configuration preview');
@@ -1853,9 +1949,9 @@ async function generateISO() {
         return;
     }
     
-    // Get package list from textarea
-    const packageListText = document.getElementById('packageListTextarea').value;
-    const packageList = packageListText.split('\n')
+    // Get package list from Additional Packages tab
+    const additionalPackagesText = document.getElementById('additionalPackages')?.value || '';
+    const packageList = additionalPackagesText.split('\n')
         .map(pkg => pkg.trim())
         .filter(pkg => pkg.length > 0);
     
@@ -2024,15 +2120,19 @@ async function pollBuildStatus(buildID) {
  * Update steps based on backend status
  */
 function updateStepsFromStatus(steps) {
-    // Step mapping from backend to frontend
+    // Step mapping from backend to frontend (backend step name -> frontend data-step)
     const stepMapping = {
         'prepare': 'prepare',
-        'download': 'download', 
+        'download': 'download',
+        'upload': 'upload',
         'verify': 'verify',
         'extract': 'extract',
-        'config': 'config',
+        'inject': 'inject',
+        'embedded': 'embedded',
         'packages': 'packages',
         'kernel': 'kernel',
+        'hwe': 'hwe',
+        'md5': 'md5',
         'repackage': 'repackage',
         'complete': 'complete'
     };
@@ -2292,7 +2392,8 @@ function showStatus(elementId, type, message) {
     if (element) {
         element.className = `status ${type}`;
         element.textContent = message;
-        element.style.display = 'block';
+        element.style.display = 'inline-block';
+        
         console.log(`Status displayed for ${elementId}: [${type}] ${message}`);
     }
 }
@@ -2362,6 +2463,7 @@ async function generateUserData() {
             }
             
             showStatus('userdataStatus', 'success', 'User data configuration generated successfully');
+            if (window.AppNavigation) window.AppNavigation.switchPage('userdata');
         } else {
             showStatus('userdataStatus', 'error', result.error || 'User data generation failed');
         }
@@ -2471,11 +2573,21 @@ function validateBasicRequired(statusId) {
     });
 
     if (missing.length > 0) {
-        const first = document.getElementById(missing[0]);
-        if (first && first.scrollIntoView) {
-            first.scrollIntoView({ behavior: 'smooth', block: 'center' });
-            try { first.focus(); } catch (_) {}
+        // Switch to Basic tab first
+        if (typeof switchTab === 'function') {
+            switchTab('basic');
+        } else if (window.UIUtils && window.UIUtils.switchTab) {
+            window.UIUtils.switchTab('basic');
         }
+
+        // Small delay to allow tab switch animation
+        setTimeout(() => {
+            const first = document.getElementById(missing[0]);
+            if (first && first.scrollIntoView) {
+                first.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                try { first.focus(); } catch (_) {}
+            }
+        }, 50);
 
         const msgMap = {
             username: 'Username is required',
@@ -2529,14 +2641,1175 @@ function validateAptRequired(statusId) {
     });
 
     if (errors.length > 0) {
-        // Scroll to first error
-        const firstErrorInput = container.querySelector('.input-error');
-        if (firstErrorInput && firstErrorInput.scrollIntoView) {
-            firstErrorInput.scrollIntoView({ behavior: 'smooth', block: 'center' });
-            try { firstErrorInput.focus(); } catch (_) {}
+        // Switch to APT tab first
+        if (typeof switchTab === 'function') {
+            switchTab('apt');
+        } else if (window.UIUtils && window.UIUtils.switchTab) {
+            window.UIUtils.switchTab('apt');
         }
+
+        // Small delay to allow tab switch animation
+        setTimeout(() => {
+            // Scroll to first error
+            const firstErrorInput = container.querySelector('.input-error');
+            if (firstErrorInput && firstErrorInput.scrollIntoView) {
+                firstErrorInput.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                try { firstErrorInput.focus(); } catch (_) {}
+            }
+        }, 50);
+
         showStatus(statusId, 'error', 'APT validation failed: ' + errors.join(', '));
         return false;
     }
     return true;
 }
+
+// ============================================================================
+// Templates Manager
+// ============================================================================
+
+const TemplatesManager = (function() {
+    let templates = [];
+    let selectedTemplate = null;
+
+    /**
+     * Initialize templates page
+     */
+    async function init() {
+        console.log('TemplatesManager.init() called');
+        await loadTemplates();
+        // Initialize import file upload handler
+        initImportFileUpload();
+    }
+
+    /**
+     * Load all templates from server
+     */
+    async function loadTemplates() {
+        console.log('TemplatesManager.loadTemplates() called');
+        try {
+            const response = await fetch(`${API_BASE}/templates`);
+            const result = await response.json();
+            console.log('/api/v1/templates result:', result);
+
+            if (result.success) {
+                const prevSelectedFilename = selectedTemplate ? selectedTemplate.filename : null;
+                templates = result.templates;
+                console.log('Loaded templates:', templates);
+                renderTemplateList();
+                
+                // Auto-select 'default' template on first load
+                if (!prevSelectedFilename && templates.length > 0) {
+                    const defaultTemplate = templates.find(t => t.filename === 'default.yaml' || t.filename === 'default');
+                    if (defaultTemplate) {
+                        await selectTemplateByFilename(defaultTemplate.filename);
+                    } else {
+                        // Fallback: select first available template
+                        await selectTemplateByIndex(0);
+                    }
+                } else if (prevSelectedFilename) {
+                    // Restore previously selected template's preview
+                    const stillExists = templates.find(t => t.filename === prevSelectedFilename);
+                    if (stillExists) {
+                        await selectTemplateByFilename(prevSelectedFilename);
+                    } else {
+                        // Previous selection no longer exists, clear it
+                        selectedTemplate = null;
+                        updateActionButtons(false);
+                        const previewContainer = document.getElementById('templatePreview');
+                        if (previewContainer) {
+                            previewContainer.innerHTML = `
+                                <div class="preview-placeholder">
+                                    <span class="placeholder-icon">&#128194;</span>
+                                    <p>Select a template to preview</p>
+                                </div>
+                            `;
+                        }
+                    }
+                }
+            } else {
+                console.error('API returned success=false:', result.error);
+            }
+        } catch (error) {
+            console.error('Error loading templates:', error);
+        }
+    }
+
+    /**
+     * Render template list in UI
+     */
+    function renderTemplateList() {
+        const presetContainer = document.getElementById('presetTemplatesList');
+        const userContainer = document.getElementById('userTemplatesList');
+
+        if (!presetContainer || !userContainer) return;
+
+        const presets = templates.filter(t => t.is_built_in);
+        const users = templates.filter(t => !t.is_built_in);
+
+        // Render preset templates
+        if (presets.length > 0) {
+            presetContainer.innerHTML = presets.map((t, i) => createTemplateItem(t, templates.indexOf(t))).join('');
+        } else {
+            presetContainer.innerHTML = '<div class="template-empty">No preset templates available</div>';
+        }
+
+        // Render user templates
+        if (users.length > 0) {
+            userContainer.innerHTML = users.map((t, i) => createTemplateItem(t, templates.indexOf(t))).join('');
+        } else {
+            userContainer.innerHTML = '<div class="template-empty">No custom templates yet</div>';
+        }
+    }
+
+    /**
+     * Create template item HTML
+     */
+    function createTemplateItem(template, index) {
+        const isSelected = selectedTemplate && selectedTemplate.filename === template.filename;
+        return `
+            <div class="template-item ${isSelected ? 'selected' : ''}" 
+                 data-filename="${template.filename}"
+                 data-index="${index}"
+                 data-built-in="${template.is_built_in}"
+                 onclick="TemplatesManager.selectTemplateByIndex(${index})">
+                <div class="template-item-content">
+                    <div class="template-item-name">${template.filename}</div>
+                </div>
+            </div>
+        `;
+    }
+
+    /**
+     * Select template by index
+     */
+    async function selectTemplateByIndex(index) {
+        if (index < 0 || index >= templates.length) {
+            console.error('Invalid template index:', index);
+            return;
+        }
+        const template = templates[index];
+        await selectTemplateByFilename(template.filename);
+    }
+
+    /**
+     * Select template by filename
+     */
+    async function selectTemplateByFilename(filename) {
+        try {
+            // If we're in edit mode, exit first (but don't reload current template)
+            if (inlineEditorState.textarea) {
+                const previewContent = document.getElementById('templatePreview');
+                const previewTitle = document.getElementById('previewTitle');
+                const actionsNormal = document.getElementById('previewActionsNormal');
+                const actionsEdit = document.getElementById('previewActionsEdit');
+
+                previewContent.classList.remove('editing');
+                previewTitle.textContent = 'Template Preview';
+                actionsNormal.style.display = 'flex';
+                actionsEdit.style.display = 'none';
+
+                inlineEditorState = {
+                    originalYaml: '',
+                    hasChanges: false,
+                    textarea: null
+                };
+            }
+
+            const response = await fetch(`${API_BASE}/templates/${encodeURIComponent(filename)}`);
+            const result = await response.json();
+
+            if (result.success) {
+                selectedTemplate = templates.find(t => t.filename === filename);
+                renderTemplateList();
+                renderPreview(result.yaml);
+                updateActionButtons(true);
+            } else {
+                console.error('Failed to load template:', result.error);
+            }
+        } catch (error) {
+            console.error('Error selecting template:', error);
+        }
+    }
+
+    /**
+     * Render template preview
+     */
+    function renderPreview(yamlContent) {
+        const previewContainer = document.getElementById('templatePreview');
+        if (!previewContainer) return;
+
+        previewContainer.innerHTML = `
+            <pre class="preview-yaml">${escapeHtml(yamlContent)}</pre>
+        `;
+    }
+
+    /**
+     * Escape HTML special characters
+     */
+    function escapeHtml(text) {
+        const div = document.createElement('div');
+        div.textContent = text;
+        return div.innerHTML;
+    }
+
+    /**
+     * Update action buttons state
+     */
+    function updateActionButtons(enabled) {
+        const applyBtn = document.getElementById('applyTemplateBtn');
+        const exportBtn = document.getElementById('exportTemplateBtn');
+        const copyBtn = document.getElementById('copyTemplateBtn');
+        const editBtn = document.getElementById('editTemplateBtn');
+        const deleteBtn = document.getElementById('deleteTemplateBtn');
+
+        if (applyBtn) applyBtn.disabled = !enabled;
+        if (exportBtn) exportBtn.disabled = !enabled;
+        if (copyBtn) copyBtn.disabled = !enabled;
+
+        if (!selectedTemplate) {
+            if (editBtn) editBtn.disabled = true;
+            if (deleteBtn) { deleteBtn.disabled = true; deleteBtn.style.visibility = 'visible'; }
+            return;
+        }
+
+        const isPreset = !!selectedTemplate.is_built_in;
+
+        // Edit: only for user templates, hidden for presets
+        if (editBtn) {
+            editBtn.disabled = !enabled || isPreset;
+            editBtn.style.display = isPreset ? 'none' : 'inline-flex';
+        }
+
+        // Delete: only for user templates
+        if (deleteBtn) {
+            deleteBtn.disabled = !enabled || isPreset;
+            deleteBtn.style.display = isPreset ? 'none' : 'inline-flex';
+        }
+    }
+
+    /**
+     * Edit selected template (user templates only) — opens YAML editor modal
+     */
+    function editSelectedTemplate() {
+        if (!selectedTemplate) return;
+        editSelectedTemplate_impl();
+    }
+
+    /**
+     * Apply basic config to form fields
+     */
+    function applyBasicConfigToForm(auto) {
+        if (!auto) return;
+        if (auto.identity) {
+            setFormValue('username', auto.identity.username);
+            setFormValue('hostname', auto.identity.hostname);
+            setFormValue('realname', auto.identity.realname);
+            setFormValue('password', auto.identity.password);
+        }
+        if (auto.locale) setFormValue('locale', auto.locale);
+        if (auto.keyboard) setFormValue('keyboard', auto.keyboard.layout || auto.keyboard);
+        if (auto.timezone) setFormValue('timezone', auto.timezone);
+        if (auto.kernel) setFormValue('kernel', auto.kernel.package);
+        if (auto.updates) setFormValue('updates', auto.updates);
+        if (auto.shutdown) setFormValue('shutdown', auto.shutdown);
+        if (auto.drivers) setFormValue('drivers', auto.drivers.install ? 'true' : 'false');
+    }
+
+    /**
+     * Set select element value helper
+     */
+    function setSelectValue(id, value) {
+        const el = document.getElementById(id);
+        if (el) el.value = value;
+    }
+
+    /**
+     * Apply APT config to form fields
+     */
+    function applyAptConfigToForm(apt) {
+        if (!apt) return;
+
+        if ('geoip' in apt) setSelectValue('aptGeoIP', apt.geoip);
+        if ('preserve_sources_list' in apt) setSelectValue('aptPreserveSources', apt.preserve_sources_list);
+
+        // Disable Components checkboxes
+        if (apt.disable_components && Array.isArray(apt.disable_components)) {
+            const container = document.getElementById('aptDisableComponents');
+            if (container) {
+                container.querySelectorAll('input[type="checkbox"]').forEach(cb => {
+                    cb.checked = apt.disable_components.includes(cb.value);
+                });
+            }
+        }
+
+        // Disable Suites checkboxes
+        if (apt.disable_suites && Array.isArray(apt.disable_suites)) {
+            const container = document.getElementById('aptDisableSuitesOptions');
+            if (container) {
+                container.querySelectorAll('input[type="checkbox"]').forEach(cb => {
+                    cb.checked = apt.disable_suites.includes(cb.value);
+                });
+            }
+            const known = ['security', 'updates', 'backports', 'proposed'];
+            const custom = apt.disable_suites.filter(s => !known.includes(s));
+            if (custom.length > 0) setFormValue('aptDisableSuitesInput', custom.join(', '));
+        }
+
+        // Primary repositories
+        const reposContainer = document.getElementById('aptPrimaryRepos');
+        if (reposContainer && apt.primary && Array.isArray(apt.primary)) {
+            reposContainer.innerHTML = '';
+            apt.primary.forEach(entry => {
+                addAptRepo();
+                const rows = reposContainer.querySelectorAll('.apt-repo-config');
+                const row = rows[rows.length - 1];
+                const archesInput = row.querySelector('.apt-arches');
+                const uriInput = row.querySelector('.apt-uri');
+                if (archesInput && entry.arches) archesInput.value = entry.arches.join(',');
+                if (uriInput && entry.uri) uriInput.value = entry.uri;
+            });
+        }
+    }
+
+    /**
+     * Apply SSH config to form fields
+     */
+    function applySSHConfigToForm(ssh) {
+        if (!ssh) return;
+        if ('allow_pw' in ssh) setSelectValue('sshAllowPW', ssh.allow_pw);
+        if ('install_server' in ssh) setSelectValue('sshInstallServer', ssh.install_server);
+        if (ssh.authorized_keys && Array.isArray(ssh.authorized_keys)) {
+            setFormValue('sshKeys', ssh.authorized_keys.join('\n'));
+        }
+    }
+
+    /**
+     * Apply array of commands to a textarea
+     */
+    function applyCommandsToForm(commands, elementId) {
+        if (!commands || !Array.isArray(commands)) return;
+        setFormValue(elementId, commands.join('\n'));
+    }
+
+    /**
+     * Serialize a plain object to a simple YAML string (for user-data textarea)
+     */
+    function objectToYaml(obj) {
+        if (!obj || typeof obj !== 'object') return '';
+        const lines = [];
+        for (const [k, v] of Object.entries(obj)) {
+            if (v === null || v === undefined) continue;
+            if (Array.isArray(v)) {
+                if (v.length === 0) {
+                    lines.push(`${k}: []`);
+                } else if (typeof v[0] === 'object') {
+                    lines.push(`${k}:`);
+                    v.forEach(item => {
+                        const inner = Object.entries(item).map(([sk, sv]) => `  ${sk}: ${sv}`).join(', ');
+                        lines.push(`  - { ${inner} }`);
+                    });
+                } else {
+                    lines.push(`${k}:`);
+                    v.forEach(x => lines.push(`  - ${x}`));
+                }
+            } else if (typeof v === 'object') {
+                lines.push(`${k}:`);
+                Object.entries(v).forEach(([sk, sv]) => {
+                    lines.push(`  ${sk}: ${sv}`);
+                });
+            } else {
+                lines.push(`${k}: ${v}`);
+            }
+        }
+        return lines.join('\n');
+    }
+
+    /**
+     * Apply user-data config to form
+     */
+    function applyUserDataConfigToForm(userData) {
+        if (!userData || typeof userData !== 'object') return;
+        const yaml = objectToYaml(userData);
+        if (yaml) setFormValue('userDataRaw', yaml);
+    }
+
+    /**
+     * Apply packages config to form (additionalPackages textarea)
+     */
+    function applyPackagesConfigToForm(packages) {
+        if (!packages || !Array.isArray(packages)) return;
+        setFormValue('additionalPackages', packages.join('\n'));
+    }
+
+    /**
+     * Apply autoinstall packages to form
+     */
+    function applyAutoinstallPackagesToForm(packages) {
+        if (!packages || !Array.isArray(packages)) return;
+        setFormValue('autoinstallPackages', packages.join('\n'));
+    }
+
+    /**
+     * Apply embedded files config (stub — embedded.html view not yet implemented)
+     */
+    function applyEmbeddedFilesConfigToForm(embeddedFiles) {
+        if (!embeddedFiles || !Array.isArray(embeddedFiles)) return;
+        console.log('[applyEmbeddedFilesConfigToForm] embedded-files from template:', embeddedFiles);
+        if (typeof showNotification === 'function') {
+            showNotification(`Template contains ${embeddedFiles.length} embedded file(s) — view not yet implemented`, 'info');
+        } else {
+            showStatus('configStatus', 'info', `Template contains ${embeddedFiles.length} embedded file(s) — view not yet implemented`);
+        }
+    }
+
+    /**
+     * Apply a parsed autoinstall config to the UI — fills ALL tabs.
+     * This is exported so default loading can reuse the same logic.
+     */
+    async function applyAutoinstallConfigToUI(auto) {
+        // Mark modified BEFORE loading views so setDefaultValues is skipped
+        window.configModified = true;
+
+        // Force-load ALL tab DOMs so elements exist before applying config
+        await Promise.all([
+            loadView('basic', '/static/views/basic.html', null, true),
+            loadView('apt', '/static/views/apt.html', null, true),
+            loadView('network', '/static/views/network.html', null, true),
+            loadView('storage', '/static/views/storage.html', null, true),
+            loadView('ssh', '/static/views/ssh.html', null, true),
+            loadView('advanced', '/static/views/advanced.html', null, true),
+            loadView('packages', '/static/views/packages.html', null, true),
+        ]);
+
+        const safeAuto = auto || {};
+
+        applyBasicConfigToForm(safeAuto);
+        if (safeAuto.apt) applyAptConfigToForm(safeAuto.apt);
+        if (safeAuto.network) NetworkManager.loadFromConfig(safeAuto.network);
+        if (safeAuto.storage) StorageManager.loadFromConfig(safeAuto.storage);
+        if (safeAuto.ssh) applySSHConfigToForm(safeAuto.ssh);
+        if (safeAuto.packages) {
+            applyAutoinstallPackagesToForm(safeAuto.packages);
+            applyPackagesConfigToForm(safeAuto.packages);
+        }
+        if (safeAuto['early-commands']) applyCommandsToForm(safeAuto['early-commands'], 'earlyCommands');
+        if (safeAuto['late-commands']) applyCommandsToForm(safeAuto['late-commands'], 'lateCommands');
+        if (safeAuto['error-commands']) applyCommandsToForm(safeAuto['error-commands'], 'errorCommands');
+        if (safeAuto['user-data']) applyUserDataConfigToForm(safeAuto['user-data']);
+        if (safeAuto['embedded-files']) applyEmbeddedFilesConfigToForm(safeAuto['embedded-files']);
+
+        if (typeof showNotification === 'function') {
+            showNotification('Template applied successfully!', 'success');
+        } else {
+            showStatus('configStatus', 'success', 'Template applied successfully!');
+        }
+        if (typeof AppNavigation !== 'undefined') {
+            AppNavigation.switchPage('config');
+        }
+    }
+
+    /**
+     * Apply selected template to config — fills ALL tabs
+     */
+    async function applySelectedTemplate() {
+        if (!selectedTemplate) return;
+
+        try {
+            const filename = encodeURIComponent(selectedTemplate.filename);
+            const response = await fetch(`${API_BASE}/templates/${filename}`);
+            const result = await response.json();
+
+            if (result.success && result.config) {
+                const auto = result.config.autoinstall || {};
+                await applyAutoinstallConfigToUI(auto);
+            } else {
+                showNotification('Failed to apply template', 'error');
+            }
+        } catch (error) {
+            console.error('Error applying template:', error);
+            showNotification('Error applying template', 'error');
+        }
+    }
+
+    /**
+     * Set form value helper
+     */
+    function setFormValue(id, value) {
+        const el = document.getElementById(id);
+        if (el) el.value = value;
+    }
+
+    /**
+     * Apply config to form fields (legacy — delegates to applyBasicConfigToForm)
+     */
+    function applyConfigToForm(config) {
+        if (config && config.autoinstall) {
+            applyBasicConfigToForm(config.autoinstall);
+        }
+    }
+
+    /**
+     * Export selected template
+     */
+    function exportSelectedTemplate() {
+        if (!selectedTemplate) return;
+
+        const previewEl = document.querySelector('.preview-yaml');
+        if (!previewEl) return;
+
+        const content = previewEl.textContent;
+        const blob = new Blob([content], { type: 'text/yaml' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `${selectedTemplate.filename}.yaml`;
+        a.click();
+        URL.revokeObjectURL(url);
+    }
+
+    /**
+     * Delete selected template
+     */
+    async function deleteSelectedTemplate() {
+        if (!selectedTemplate || selectedTemplate.is_built_in) return;
+
+        showConfirmModal(
+            'Delete Template',
+            `Are you sure you want to delete "${selectedTemplate.filename}"?`,
+            async () => {
+                try {
+                    const filename = encodeURIComponent(selectedTemplate.filename);
+                    const response = await fetch(`${API_BASE}/templates/${filename}`, {
+                        method: 'DELETE'
+                    });
+                    const result = await response.json();
+                    
+                    if (result.success) {
+                        selectedTemplate = null;
+                        await loadTemplates();
+                        clearPreview();
+                        updateActionButtons(false);
+                        showNotification('Template deleted', 'success');
+                    } else {
+                        showNotification('Failed to delete template', 'error');
+                    }
+                } catch (error) {
+                    console.error('Error deleting template:', error);
+                    showNotification('Error deleting template', 'error');
+                }
+            }
+        );
+    }
+
+    /**
+     * Clear preview
+     */
+    function clearPreview() {
+        const previewContainer = document.getElementById('templatePreview');
+        if (previewContainer) {
+            previewContainer.innerHTML = `
+                <div class="preview-placeholder">
+                    <span class="placeholder-icon">&#128194;</span>
+                    <p>Select a template to preview</p>
+                </div>
+            `;
+        }
+    }
+
+    /**
+     * Copy selected template YAML to clipboard
+     */
+    async function copySelectedTemplate() {
+        if (!selectedTemplate) return;
+        const previewEl = document.querySelector('.preview-yaml');
+        if (!previewEl) return;
+        const yaml = previewEl.textContent;
+        if (!yaml) {
+            showNotification('No YAML content to copy', 'error');
+            return;
+        }
+        try {
+            await navigator.clipboard.writeText(yaml);
+            showNotification('YAML copied to clipboard', 'success');
+        } catch (err) {
+            const ta = document.createElement('textarea');
+            ta.value = yaml;
+            ta.style.position = 'fixed';
+            ta.style.opacity = '0';
+            document.body.appendChild(ta);
+            ta.select();
+            document.execCommand('copy');
+            document.body.removeChild(ta);
+            showNotification('YAML copied to clipboard', 'success');
+        }
+    }
+
+    /**
+     * Edit template YAML inline in preview area (user templates only)
+     */
+    async function editSelectedTemplate_impl() {
+        if (!selectedTemplate) return;
+
+        try {
+            const response = await fetch(`${API_BASE}/templates/${encodeURIComponent(selectedTemplate.filename)}`);
+            const result = await response.json();
+            if (!result.success || !result.yaml) {
+                showNotification('Failed to load template', 'error');
+                return;
+            }
+
+            showInlineEditor(result.yaml);
+        } catch (error) {
+            console.error('Error loading template for edit:', error);
+            showNotification('Error loading template', 'error');
+        }
+    }
+
+    let inlineEditorState = {
+        originalYaml: '',
+        hasChanges: false,
+        textarea: null
+    };
+
+    /**
+     * Show inline editor in preview area
+     */
+    function showInlineEditor(yaml) {
+        const previewContent = document.getElementById('templatePreview');
+        const previewTitle = document.getElementById('previewTitle');
+        const actionsNormal = document.getElementById('previewActionsNormal');
+        const actionsEdit = document.getElementById('previewActionsEdit');
+
+        const lineCount = (yaml.match(/\n/g) || []).length + 1;
+        const lines = [];
+        for (let i = 1; i <= lineCount; i++) lines.push(i);
+
+        previewTitle.textContent = 'Editing: ' + selectedTemplate.filename;
+
+        previewContent.innerHTML = `
+            <div class="edit-editor">
+                <div class="edit-editor-toolbar">
+                    <span class="edit-editor-meta">${lineCount} lines</span>
+                    <div class="edit-editor-actions">
+                        <button type="button" class="btn btn-secondary" id="inlineCancelBtn">Cancel</button>
+                        <button type="button" class="btn btn-primary" id="inlineSaveBtn">Save</button>
+                    </div>
+                </div>
+                <div class="edit-editor-body">
+                    <div class="edit-editor-gutter" id="editEditorGutter"><pre>${lines.join('\n')}</pre></div>
+                    <textarea id="editEditorTextarea" class="edit-editor-textarea" spellcheck="false">${escapeHtml(yaml)}</textarea>
+                </div>
+                <div class="edit-editor-footer">
+                    <span class="edit-editor-status" id="editEditorStatus"></span>
+                </div>
+            </div>
+        `;
+        previewContent.classList.add('editing');
+
+        actionsNormal.style.display = 'none';
+        actionsEdit.style.display = 'none';
+
+        const textarea = document.getElementById('editEditorTextarea');
+        const gutter = document.getElementById('editEditorGutter');
+        const status = document.getElementById('editEditorStatus');
+
+        inlineEditorState = {
+            originalYaml: yaml,
+            hasChanges: false,
+            textarea: textarea
+        };
+
+        function updateGutter() {
+            const lines = textarea.value.split('\n');
+            const gLines = [];
+            for (let i = 1; i <= lines.length; i++) gLines.push(i);
+            gutter.innerHTML = '<pre>' + gLines.join('\n') + '</pre>';
+        }
+
+        function syncScroll() {
+            gutter.scrollTop = textarea.scrollTop;
+        }
+
+        function updateStatus() {
+            const newYaml = textarea.value;
+            inlineEditorState.hasChanges = newYaml !== inlineEditorState.originalYaml;
+            if (inlineEditorState.hasChanges) {
+                status.textContent = 'Modified';
+                status.className = 'edit-editor-status modified';
+                inlineSaveBtn.classList.add('has-changes');
+            } else {
+                status.textContent = '';
+                status.className = 'edit-editor-status';
+                inlineSaveBtn.classList.remove('has-changes');
+            }
+        }
+
+        textarea.addEventListener('input', function() {
+            updateGutter();
+            updateStatus();
+        });
+        textarea.addEventListener('scroll', syncScroll);
+        updateGutter();
+
+        const inlineCancelBtn = document.getElementById('inlineCancelBtn');
+        const inlineSaveBtn = document.getElementById('inlineSaveBtn');
+
+        inlineCancelBtn.addEventListener('click', function() {
+            cancelEdit();
+        });
+
+        inlineSaveBtn.addEventListener('click', function() {
+            saveEdit();
+        });
+    }
+
+    /**
+     * Cancel inline editing
+     */
+    function cancelEdit() {
+        if (inlineEditorState.hasChanges) {
+            showDiscardTemplateChangesModal(function() {
+                exitInlineEditor();
+            });
+        } else {
+            exitInlineEditor();
+        }
+    }
+
+    /**
+     * Save inline edit
+     */
+    async function saveEdit() {
+        console.log('saveEdit called');
+        console.log('inlineEditorState:', inlineEditorState);
+        
+        if (!inlineEditorState.textarea) {
+            console.error('No textarea found in inlineEditorState');
+            showNotification('Error: Editor not initialized', 'error');
+            return;
+        }
+        
+        const newYaml = inlineEditorState.textarea.value;
+        console.log('YAML to save:', newYaml.substring(0, 100) + '...');
+        
+        try {
+            await saveEditedTemplate(newYaml, inlineEditorState.originalYaml);
+        } catch (error) {
+            console.error('Save failed:', error);
+        }
+    }
+
+    /**
+     * Exit inline editor and restore preview mode
+     */
+    function exitInlineEditor() {
+        const previewContent = document.getElementById('templatePreview');
+        const previewTitle = document.getElementById('previewTitle');
+        const actionsNormal = document.getElementById('previewActionsNormal');
+        const actionsEdit = document.getElementById('previewActionsEdit');
+
+        previewContent.classList.remove('editing');
+        previewTitle.textContent = 'Template Preview';
+        actionsNormal.style.display = 'flex';
+        actionsEdit.style.display = 'none';
+
+        inlineEditorState = {
+            originalYaml: '',
+            hasChanges: false,
+            textarea: null
+        };
+
+        if (selectedTemplate) {
+            // Reload and display the saved template
+            selectTemplateByFilename(selectedTemplate.filename);
+        } else {
+            previewContent.innerHTML = `
+                <div class="preview-placeholder">
+                    <span class="placeholder-icon">&#128194;</span>
+                    <p>Select a template to preview</p>
+                </div>
+            `;
+        }
+    }
+
+    /**
+     * Save edited template YAML to server
+     */
+    async function saveEditedTemplate(newYaml, originalYaml) {
+        try {
+            const response = await fetch(`${API_BASE}/templates/save-yaml`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    name: selectedTemplate.filename,
+                    yaml: newYaml
+                })
+            });
+            const result = await response.json();
+            if (result.success) {
+                await loadTemplates();
+                exitInlineEditor();
+                showNotification('Template saved successfully', 'success');
+            } else {
+                showNotification(result.error || 'Failed to save template', 'error');
+            }
+        } catch (error) {
+            console.error('Error saving template:', error);
+            showNotification('Error saving template', 'error');
+        }
+    }
+
+    /**
+     * Parse YAML string to config object
+     */
+    async function parseYaml(yaml) {
+        try {
+            const response = await fetch(`${API_BASE}/templates/parse`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ yaml: yaml })
+            });
+            
+            if (!response.ok) {
+                const text = await response.text();
+                console.error('Parse YAML failed:', response.status, text);
+                throw new Error('Failed to parse YAML: ' + response.status);
+            }
+            
+            const result = await response.json();
+            if (result.success) return result.config;
+            throw new Error(result.error || 'YAML parse failed');
+        } catch (error) {
+            console.error('Parse YAML error:', error);
+            throw error;
+        }
+    }
+
+    /**
+     * Show discard changes modal for template editor
+     */
+    function showDiscardTemplateChangesModal(onDiscard) {
+        showConfirmModal('Discard Changes', 'You have unsaved changes. Are you sure you want to discard them?', function() {
+            if (typeof onDiscard === 'function') onDiscard();
+        });
+    }
+
+    /**
+     * Open a modal dialog (inline, no external dependency)
+     */
+    function openModal(title, bodyHtml, footerHtml, width) {
+        closeModal();
+        const overlay = document.createElement('div');
+        overlay.id = 'tmplEditModal';
+        overlay.className = 'modal-overlay';
+        overlay.onclick = function(e) { if (e.target === overlay) closeModal(); };
+
+        const modal = document.createElement('div');
+        modal.className = 'modal-dialog' + (width ? '' : '');
+        if (width) modal.style.maxWidth = width;
+        modal.innerHTML = '<div class="modal-header">' +
+            '<h3>' + escapeHtml(title) + '</h3>' +
+            '<button class="modal-close" onclick="TemplatesManager.closeModal()">&times;</button>' +
+            '</div>' +
+            '<div class="modal-body">' + bodyHtml + '</div>' +
+            (footerHtml ? '<div class="modal-footer">' + footerHtml + '</div>' : '');
+
+        overlay.appendChild(modal);
+        document.body.appendChild(overlay);
+        setTimeout(function() { overlay.classList.add('active'); modal.classList.add('active'); }, 10);
+        return modal;
+    }
+
+    /**
+     * Close the inline modal dialog
+     */
+    function closeModal() {
+        const m = document.getElementById('tmplEditModal');
+        if (m) {
+            m.classList.remove('active');
+            setTimeout(function() { m.remove(); }, 200);
+        }
+    }
+
+    /**
+     * Show save template modal
+     */
+    function saveCurrentAsTemplate() {
+        const modal = document.getElementById('saveTemplateModal');
+        if (modal) {
+            modal.style.display = 'flex';
+        }
+    }
+
+    /**
+     * Close save modal
+     */
+    function closeSaveModal() {
+        const modal = document.getElementById('saveTemplateModal');
+        if (modal) {
+            modal.style.display = 'none';
+        }
+        // Clear inputs
+        const nameInput = document.getElementById('newTemplateName');
+        if (nameInput) nameInput.value = '';
+    }
+
+    /**
+     * Confirm save template
+     */
+    async function confirmSaveTemplate() {
+        const nameInput = document.getElementById('newTemplateName');
+
+        const name = nameInput?.value?.trim();
+        if (!name) {
+            showNotification('Template name is required', 'error');
+            return;
+        }
+
+        try {
+            // Build current config
+            const config = await buildCompleteConfig();
+            if (!config) {
+                showNotification('Failed to build config from current form', 'error');
+                return;
+            }
+
+            const response = await fetch(`${API_BASE}/templates/save`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    name: name,
+                    config: config
+                })
+            });
+
+            const result = await response.json();
+            if (result.success) {
+                closeSaveModal();
+                await loadTemplates();
+                showNotification('Template saved successfully!', 'success');
+            } else {
+                showNotification(result.error || 'Failed to save template', 'error');
+            }
+        } catch (error) {
+            console.error('Error saving template:', error);
+            showNotification('Error saving template', 'error');
+        }
+    }
+
+    /**
+     * Show import template modal
+     */
+    function importTemplate() {
+        const modal = document.getElementById('importTemplateModal');
+        if (modal) {
+            modal.style.display = 'flex';
+            // Reset to paste mode by default
+            switchImportMode('paste');
+        }
+    }
+
+    /**
+     * Switch between paste and upload mode in import modal
+     */
+    function switchImportMode(mode) {
+        const pasteBtn = document.getElementById('importModePaste');
+        const uploadBtn = document.getElementById('importModeUpload');
+        const pasteMode = document.getElementById('importPasteMode');
+        const uploadMode = document.getElementById('importUploadMode');
+        const nameInput = document.getElementById('importTemplateName');
+
+        if (pasteBtn) pasteBtn.classList.toggle('active', mode === 'paste');
+        if (uploadBtn) uploadBtn.classList.toggle('active', mode === 'upload');
+        if (pasteMode) pasteMode.style.display = mode === 'paste' ? 'block' : 'none';
+        if (uploadMode) uploadMode.style.display = mode === 'upload' ? 'block' : 'none';
+        if (nameInput) nameInput.style.display = mode === 'paste' ? 'block' : 'none';
+    }
+
+    /**
+     * Handle file upload for import
+     */
+    function initImportFileUpload() {
+        const fileInput = document.getElementById('importFileInput');
+        if (fileInput) {
+            fileInput.onchange = function(e) {
+                const file = e.target.files[0];
+                if (!file) return;
+
+                const reader = new FileReader();
+                reader.onload = function(e) {
+                    const content = e.target.result;
+                    document.getElementById('importTemplateYaml').value = content;
+
+                    // Show file info
+                    const preview = document.getElementById('importFilePreview');
+                    if (preview) {
+                        preview.innerHTML = `<span class="import-file-info">Selected: ${escapeHtml(file.name)} (${formatFileSize(file.size)})</span>`;
+                    }
+                };
+                reader.readAsText(file);
+            };
+        }
+    }
+
+    /**
+     * Format file size for display
+     */
+    function formatFileSize(bytes) {
+        if (bytes < 1024) return bytes + ' B';
+        if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+        return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+    }
+
+    /**
+     * Close import modal
+     */
+    function closeImportModal() {
+        const modal = document.getElementById('importTemplateModal');
+        if (modal) {
+            modal.style.display = 'none';
+        }
+        // Reset form fields
+        const yamlInput = document.getElementById('importTemplateYaml');
+        if (yamlInput) yamlInput.value = '';
+        const nameInput = document.getElementById('importTemplateName');
+        if (nameInput) nameInput.value = '';
+        const fileInput = document.getElementById('importFileInput');
+        if (fileInput) fileInput.value = '';
+        const preview = document.getElementById('importFilePreview');
+        if (preview) preview.innerHTML = '';
+        // Reset to paste mode
+        switchImportMode('paste');
+    }
+
+    /**
+     * Confirm import template
+     */
+    async function confirmImportTemplate() {
+        const nameInput = document.getElementById('importTemplateName');
+        const yamlInput = document.getElementById('importTemplateYaml');
+        const fileInput = document.getElementById('importFileInput');
+        const pasteBtn = document.getElementById('importModePaste');
+
+        const isPasteMode = pasteBtn && pasteBtn.classList.contains('active');
+        const yaml = yamlInput?.value?.trim();
+
+        if (!yaml) {
+            showNotification('YAML content is required', 'error');
+            return;
+        }
+
+        let name;
+        if (isPasteMode) {
+            // Paste mode: require template name
+            name = nameInput?.value?.trim();
+            if (!name) {
+                showNotification('Template name is required', 'error');
+                return;
+            }
+        } else {
+            // Upload mode: use filename without extension
+            if (fileInput?.files?.length > 0) {
+                name = fileInput.files[0].name.replace(/\.(yaml|yml|cloud-init)$/i, '');
+            } else {
+                showNotification('Please select a file to upload', 'error');
+                return;
+            }
+        }
+
+        try {
+            // Use save-yaml endpoint to preserve raw YAML formatting
+            const response = await fetch(`${API_BASE}/templates/save-yaml`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    name: name,
+                    yaml: yaml
+                })
+            });
+
+            const result = await response.json();
+            if (result.success) {
+                closeImportModal();
+                await loadTemplates();
+                showNotification('Template imported successfully!', 'success');
+            } else {
+                showNotification(result.error || 'Failed to import template', 'error');
+            }
+        } catch (error) {
+            console.error('Error importing template:', error);
+            showNotification('Error importing template', 'error');
+        }
+    }
+
+    /**
+     * Show confirmation modal
+     */
+    function showConfirmModal(title, message, onConfirm) {
+        const modal = document.getElementById('confirmModal');
+        const titleEl = document.getElementById('confirmModalTitle');
+        const messageEl = document.getElementById('confirmModalMessage');
+        const actionBtn = document.getElementById('confirmModalAction');
+
+        if (modal) {
+            if (titleEl) titleEl.textContent = title;
+            if (messageEl) messageEl.textContent = message;
+            
+            // Set up action button
+            if (actionBtn) {
+                actionBtn.onclick = () => {
+                    modal.style.display = 'none';
+                    if (typeof onConfirm === 'function') onConfirm();
+                };
+            }
+
+            modal.style.display = 'flex';
+        }
+    }
+
+    /**
+     * Close confirmation modal
+     */
+    function closeConfirmModal() {
+        const modal = document.getElementById('confirmModal');
+        if (modal) modal.style.display = 'none';
+    }
+
+    /**
+     * Show notification
+     */
+    function showNotification(message, type) {
+        if (typeof window.showToast === 'function') {
+            window.showToast(message, type);
+        }
+    }
+
+    // Public API
+    return {
+        init,
+        loadTemplates,
+        selectTemplateByIndex,
+        selectTemplateByFilename,
+        applySelectedTemplate,
+        applyAutoinstallConfigToUI,
+        exportSelectedTemplate,
+        deleteSelectedTemplate,
+        copySelectedTemplate,
+        editSelectedTemplate,
+        saveCurrentAsTemplate,
+        closeSaveModal,
+        confirmSaveTemplate,
+        importTemplate,
+        switchImportMode,
+        closeImportModal,
+        confirmImportTemplate,
+        closeConfirmModal,
+        closeModal,
+        cancelEdit,
+        saveEdit
+    };
+})();
+
+// Make available globally
+window.TemplatesManager = TemplatesManager;

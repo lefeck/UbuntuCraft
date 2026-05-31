@@ -1,6 +1,9 @@
 package logger
 
 import (
+	"io"
+	"os"
+
 	"github.com/sirupsen/logrus"
 )
 
@@ -35,6 +38,12 @@ func init() {
 		TimestampFormat: "2006-01-02 15:04:05",
 	})
 	Logger.SetLevel(logrus.InfoLevel)
+
+	// Write logs to both stdout and file
+	logFile, err := os.OpenFile("build.log", os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0666)
+	if err == nil {
+		Logger.SetOutput(io.MultiWriter(os.Stdout, logFile))
+	}
 
 	// Initialize function variables after Logger is created
 	Info = Logger.Info

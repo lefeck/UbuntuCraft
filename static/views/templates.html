@@ -1,0 +1,152 @@
+<div class="templates-container">
+    <!-- Template Selection Area -->
+    <div class="templates-layout">
+        <!-- Left: Template List with Import below -->
+        <div class="templates-list-wrapper">
+            <!-- Template List Panel -->
+            <div class="templates-list-panel">
+                <!-- Preset Templates -->
+                <div class="template-section">
+                    <h3 class="template-section-title">System Template</h3>
+                    <div id="presetTemplatesList" class="template-items">
+                        <!-- Loaded dynamically -->
+                    </div>
+                </div>
+
+                <!-- User Templates -->
+                <div class="template-section">
+                    <h3 class="template-section-title">Custom Template</h3>
+                    <div id="userTemplatesList" class="template-items">
+                        <!-- Loaded dynamically -->
+                    </div>
+                </div>
+            </div>
+
+            <!-- Import Button - Below the white panel -->
+            <div class="templates-import-external">
+                <button type="button" class="btn" onclick="TemplatesManager.importTemplate()">
+                    Import
+                </button>
+            </div>
+        </div>
+
+        <!-- Right: Template Preview -->
+        <div class="templates-preview-panel">
+            <div class="preview-header">
+                <h3 class="preview-title" id="previewTitle">Template Preview</h3>
+                <div class="preview-actions" id="previewActionsNormal">
+                    <button type="button" id="applyTemplateBtn" onclick="TemplatesManager.applySelectedTemplate()" disabled>
+                        Apply
+                    </button>
+                    <button type="button" id="exportTemplateBtn" onclick="TemplatesManager.exportSelectedTemplate()" disabled>
+                        Export
+                    </button>
+                    <button type="button" id="copyTemplateBtn" onclick="TemplatesManager.copySelectedTemplate()" disabled>
+                        Copy
+                    </button>
+                    <button type="button" id="editTemplateBtn" onclick="TemplatesManager.editSelectedTemplate()" disabled>
+                        Edit
+                    </button>
+                    <button type="button" class="danger" id="deleteTemplateBtn" onclick="TemplatesManager.deleteSelectedTemplate()" disabled>
+                        Delete
+                    </button>
+                </div>
+                <div class="preview-actions" id="previewActionsEdit" style="display: none;">
+                    <button type="button" id="cancelEditBtn" onclick="TemplatesManager.cancelEdit()">
+                        Cancel
+                    </button>
+                    <button type="button" id="saveEditBtn" onclick="TemplatesManager.saveEdit()">
+                        Save
+                    </button>
+                </div>
+            </div>
+            <div id="templatePreview" class="preview-content">
+                <div class="preview-placeholder">
+                    <span class="placeholder-icon">&#128194;</span>
+                    <p>Select a template to preview</p>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Save Template Modal -->
+<div id="saveTemplateModal" class="modal" style="display: none;">
+    <div class="modal-content">
+        <div class="modal-header">
+            <h3>Save as Template</h3>
+            <button type="button" class="modal-close" onclick="TemplatesManager.closeSaveModal()">&times;</button>
+        </div>
+        <div class="modal-body">
+            <div class="form-group">
+                <label>Template Name <span class="hint-icon" data-tooltip="A unique name for your template (will be used as filename)">?</span></label>
+                <input type="text" id="newTemplateName" placeholder="e.g., my-server-config" required>
+            </div>
+        </div>
+        <div class="modal-footer">
+            <button type="button" class="btn btn-secondary" onclick="TemplatesManager.closeSaveModal()">Cancel</button>
+            <button type="button" class="btn btn-primary" onclick="TemplatesManager.confirmSaveTemplate()">Save Template</button>
+        </div>
+    </div>
+</div>
+
+<!-- Import Template Modal -->
+<div id="importTemplateModal" class="modal" style="display: none;">
+    <div class="modal-content">
+        <div class="modal-header">
+            <h3>Import Template</h3>
+            <button type="button" class="modal-close" onclick="TemplatesManager.closeImportModal()">&times;</button>
+        </div>
+        <div class="modal-body">
+            <!-- Mode Tabs -->
+            <div class="import-mode-tabs">
+                <button type="button" id="importModePaste" class="active" onclick="TemplatesManager.switchImportMode('paste')">Paste YAML</button>
+                <button type="button" id="importModeUpload" onclick="TemplatesManager.switchImportMode('upload')">Upload File</button>
+            </div>
+
+            <!-- Paste Mode -->
+            <div id="importPasteMode">
+                <div class="form-group">
+                    <label>Template Name <span class="hint-icon" data-tooltip="A unique name for the template (used as filename)">?</span></label>
+                    <input type="text" id="importTemplateName" placeholder="e.g., my-custom-template" required>
+                </div>
+                <div class="form-group">
+                    <label>Paste YAML Content <span class="hint-icon" data-tooltip="Paste your template YAML here">?</span></label>
+                    <textarea id="importTemplateYaml" placeholder="#cloud-config
+autoinstall:
+  version: 1" rows="12"></textarea>
+                </div>
+            </div>
+
+            <!-- Upload Mode (hidden by default) -->
+            <div id="importUploadMode" style="display: none;">
+                <div class="form-group">
+                    <label>Select YAML File <span class="hint-icon" data-tooltip="Upload a .yaml or .yml file">?</span></label>
+                    <input type="file" id="importFileInput" accept=".yaml,.yml,.cloud-init" class="import-file-input">
+                    <div id="importFilePreview" class="import-file-preview"></div>
+                </div>
+            </div>
+        </div>
+        <div class="modal-footer">
+            <button type="button" class="btn btn-secondary" onclick="TemplatesManager.closeImportModal()">Cancel</button>
+            <button type="button" class="btn btn-primary" onclick="TemplatesManager.confirmImportTemplate()">Import</button>
+        </div>
+    </div>
+</div>
+
+<!-- Confirmation Modal -->
+<div id="confirmModal" class="modal" style="display: none;">
+    <div class="modal-content modal-sm">
+        <div class="modal-header">
+            <h3 id="confirmModalTitle">Confirm</h3>
+            <button type="button" class="modal-close" onclick="TemplatesManager.closeConfirmModal()">&times;</button>
+        </div>
+        <div class="modal-body">
+            <p id="confirmModalMessage">Are you sure?</p>
+        </div>
+        <div class="modal-footer">
+            <button type="button" class="btn btn-secondary" onclick="TemplatesManager.closeConfirmModal()">Cancel</button>
+            <button type="button" class="btn btn-danger" id="confirmModalAction">Confirm</button>
+        </div>
+    </div>
+</div>

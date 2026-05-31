@@ -14,11 +14,11 @@ function showStatus(elementId, type, message) {
     element.textContent = message;
     element.style.display = 'block';
     
-    // Auto-hide success and info messages after 5 seconds
+    // Auto-hide success and info messages after 10 seconds
     if (type === 'success' || type === 'info') {
         setTimeout(() => {
             element.style.display = 'none';
-        }, 5000);
+        }, 10000);
     }
 }
 

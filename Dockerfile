@@ -12,7 +12,7 @@ WORKDIR /app
 COPY go.mod go.sum ./
 RUN go mod download
 COPY . .
-RUN CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o ubuntu-autoinstaller main.go
+RUN CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o ubuntu-craft main.go
 
 # -----------------------
 # Runtime Stage (Ubuntu)
@@ -44,7 +44,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
-COPY --from=builder /app/ubuntu-autoinstaller .
+COPY --from=builder /app/ubuntu-craft .
 COPY --from=builder /app/static ${STATIC_DIR}
 
 EXPOSE ${UAI_PORT}
@@ -53,4 +53,4 @@ HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
     CMD curl -f http://0.0.0.0:${UAI_PORT}/health || exit 1
 
 ENTRYPOINT ["/usr/bin/tini", "--"]
-CMD ["./ubuntu-autoinstaller"]
+CMD ["./ubuntu-craft"]
