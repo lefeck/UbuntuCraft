@@ -1,9 +1,9 @@
 version: "3.9"
 
 services:
-  ubuntu-autoinstaller:
-    image: jetfuls/ubuntu-autoinstaller:1.0-ubuntu20.04
-    container_name: ubuntu-autoinstaller
+  ubuntu-craft:
+    image: jetfuls/ubuntu-craft:1.0-ubuntu20.04
+    container_name: ubuntu-craft
     ports:
       - "8080:8080"
     environment:
@@ -20,5 +20,5 @@ services:
       retries: 3
       start_period: 5s
     entrypoint: ["/usr/bin/tini", "--"]
-    command: ["./ubuntu-autoinstaller"]
+    command: ["./ubuntu-craft"]
     restart: unless-stopped

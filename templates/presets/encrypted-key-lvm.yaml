@@ -1,0 +1,149 @@
+# Encrypted Disk Configuration Template
+# Ubuntu Server with full disk encryption using LUKS
+
+autoinstall:
+  version: 1
+  apt:
+    disable_components: []
+    disable_suites: ["security"]
+    geoip: true
+    preserve_sources_list: false
+    primary:
+      - arches: ["amd64", "i386"]
+        uri: "http://archive.ubuntu.com/ubuntu"
+      - arches: ["default"]
+        uri: "http://ports.ubuntu.com/ubuntu-ports"
+  drivers:
+    install: false
+  identity:
+    hostname: "encrypted-server"
+    # default password: 123456
+    password: "$6$FnHPy.4giHfDcI8r$vllY94AceZFt20M6WzxXKfOLuycO7o8QD8RJJwVs/DSGcHNNF4ilbGrukXPMA3irAdiimHo0fl2zUdkbRO9vh1"
+    realname: "ubuntu"
+    username: "ubuntu"
+  kernel:
+    package: "linux-generic"
+  keyboard:
+    layout: "us"
+    toggle: ""
+    variant: ""
+  locale: "en_US.UTF-8"
+  network:
+    version: 2
+    renderer: "networkd"
+    ethernets:
+      ens160:
+        dhcp4: false
+        dhcp6: false
+        addresses: ["192.168.7.10/24"]
+        routes:
+          - to: "default"
+            via: "192.168.7.1"
+        nameservers:
+          addresses: ["114.114.114.114"]
+          search: []
+        match:
+          name: "ens160"
+  ssh:
+    allow-pw: true
+    authorized-keys: []
+    install-server: true
+  storage:
+    config:
+      # Boot partition (unencrypted)
+      - type: "disk"
+        id: "disk0"
+        grub_device: true
+        ptable: "gpt"
+        wipe: "superblock-recursive"
+        match:
+          size: "largest"
+      - type: "partition"
+        id: "bios-grub-part"
+        device: "disk0"
+        number: 1
+        size: 1048576
+        flag: "bios_grub"
+        preserve: false
+        wipe: "superblock"
+      - type: "partition"
+        id: "boot-part"
+        device: "disk0"
+        number: 2
+        size: 2147483648
+        preserve: false
+        wipe: "superblock"
+      - type: "format"
+        id: "boot-fs"
+        volume: "boot-part"
+        fstype: "ext4"
+        preserve: false
+      - type: "partition"
+        id: "crypt-part"
+        device: "disk0"
+        number: 3
+        size: -1
+        preserve: false
+        wipe: "random"
+      # LUKS encrypted volume
+      - type: "dm_crypt"
+        id: "crypt-root"
+        volume: "crypt-part"
+        key: "ubuntu"
+        dm_name: "ubuntu"
+        preserve: false
+      # LVM inside LUKS
+      - type: "lvm_volgroup"
+        id: "vg0"
+        name: "ubuntu-vg"
+        devices: ["crypt-root"]
+        preserve: false
+      - type: "lvm_partition"
+        id: "lv-swap"
+        volgroup: "vg0"
+        name: "swap"
+        size: 2147483648
+        preserve: false
+        wipe: "superblock"
+      - type: "format"
+        id: "fs-swap"
+        volume: "lv-swap"
+        fstype: "swap"
+        preserve: false
+      - type: "lvm_partition"
+        id: "lv-root"
+        volgroup: "vg0"
+        name: "ubuntu-lv"
+        size: -1
+        preserve: false
+        wipe: "superblock"
+      - type: "format"
+        id: "fs-root"
+        volume: "lv-root"
+        fstype: "ext4"
+        preserve: false
+      # Mount points
+      - type: "mount"
+        id: "mount-root"
+        path: "/"
+        device: "fs-root"
+        preserve: false
+      - type: "mount"
+        id: "mount-boot"
+        path: "/boot"
+        device: "boot-fs"
+        preserve: false
+      - type: "mount"
+        id: "mount-swap"
+        path: none
+        device: "fs-swap"
+        preserve: false
+    swap:
+        size: 1G
+    grub:
+      reorder_uefi: false
+  updates: "security"
+  shutdown: "reboot"
+  packages: []
+  early-commands: []
+  late-commands: []

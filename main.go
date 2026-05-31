@@ -2,10 +2,11 @@ package main
 
 import (
 	"flag"
+
 	"github.com/gin-gonic/gin"
-	"github.com/lefeck/ubuntu-autoinstaller/api"
-	"github.com/lefeck/ubuntu-autoinstaller/logger"
-	"github.com/lefeck/ubuntu-autoinstaller/server"
+	"github.com/lefeck/UbuntuCraft/api"
+	"github.com/lefeck/UbuntuCraft/logger"
+	"github.com/lefeck/UbuntuCraft/server"
 )
 
 func main() {

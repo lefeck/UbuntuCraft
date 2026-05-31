@@ -1,15 +1,14 @@
-<h1 align="center">UbuntuAutoInstaller</h1>
+<h1 align="center">UbuntuCraft</h1>
 
-**UbuntuAutoInstaller** is a **web-based Ubuntu Autoinstall ISO generator** built with **Go + Gin**.  
+**UbuntuCraft** is a **web-based Ubuntu Autoinstall ISO generator** built with **Go + Gin**.
 It supports **cloud-init** automation, real-time validation, and visual configuration of system parameters.
 
 ## Video Tutorial
 
- **[Watch the tutorial](https://youtu.be/Z3Pqv76VJcE)** - Learn how to use UbuntuAutoInstaller step by step
+ **[Watch the tutorial](https://youtu.be/Z3Pqv76VJcE)** - Learn how to use UbuntuCraft step by step
 
 ## Features
 
-- [x] Automatically encrypt plaintext passwords
 - [x] Import ISO files (upload custom ISO or download directly from the internet)
 - [x] Generate cloud-init configurations
 - [x] Validate user-data format before ISO build
@@ -17,7 +16,10 @@ It supports **cloud-init** automation, real-time validation, and visual configur
 - [x] User and SSH key management
 - [x] HWE kernel support and ISO integrity verification
 - [x] Add support for downloading and embedding installation packages into the the ISO
-- [ ] Add support for building local applications directly into the ISO
+- [x] Swap file configuration (filename, size, maxsize, force)
+- [x] Template system (preset and user-defined templates)
+- [x] Embedded files management (inject custom scripts into ISO)
+- [x] Add support for building local applications directly into the ISO
 
 
 ## Install
@@ -33,15 +35,15 @@ It supports **cloud-init** automation, real-time validation, and visual configur
 
 Start by cloning the repository:
 ```bash
-git clone https://github.com/lefeck/ubuntu-autoinstaller.git
-cd ubuntu-autoinstaller
+git clone https://github.com/lefeck/UbuntuCraft.git
+cd UbuntuCraft
 make run
 ```
 You can also build using make build, which will compile in the web assets so that AutouISO can be run from anywhere:
 
 ```bash
 make build
-./ubuntu-autoinstaller
+./ubuntu-craft
 ```
 The Makefile provides several targets:
 * build: Builds the project and places the binary in the current directory.
@@ -75,32 +77,32 @@ Docker images are available on [ACR](https://cr.console.aliyun.com) or [Docker H
 
 ```bash
 # Pull from Docker Hub (Ubuntu 22.04)
-docker pull jetfuls/ubuntu-autoinstaller:1.0-ubuntu22.04
+docker pull jetfuls/ubuntu-craft:1.0-ubuntu22.04
 
 # Or pull from Aliyun ACR
-docker pull crpi-g7nxbvns4i9rnvaf.cn-hangzhou.personal.cr.aliyuncs.com/jetfuls/ubuntu-autoinstaller:1.0-ubuntu22.04
+docker pull crpi-g7nxbvns4i9rnvaf.cn-hangzhou.personal.cr.aliyuncs.com/jetfuls/ubuntu-craft:1.0-ubuntu22.04
 ```
 
 **Step 2: Run the container**
 
-You can launch a Autouiso container for trying it out with
+You can launch UbuntuCraft container for trying it out with
 
 ```
-# ubuntu-autoinstaller ubuntu 20.04
-docker run -itd -p 8080:8080 --name ubuntu-autoinstaller-20.04  jetfuls/ubuntu-autoinstaller:1.0-ubuntu20.04
+# UbuntuCraft ubuntu 20.04
+docker run -itd -p 8080:8080 --name ubuntu-craft-20.04  jetfuls/ubuntu-craft:1.0-ubuntu20.04
 # or
-docker run -itd -p 8080:8080 --name ubuntu-autoinstaller-20.04  crpi-g7nxbvns4i9rnvaf.cn-hangzhou.personal.cr.aliyuncs.com/jetfuls/ubuntu-autoinstaller:1.0-ubuntu20.04
+docker run -itd -p 8080:8080 --name ubuntu-craft-20.04  crpi-g7nxbvns4i9rnvaf.cn-hangzhou.personal.cr.aliyuncs.com/jetfuls/ubuntu-craft:1.0-ubuntu20.04
 
-# ubuntu-autoinstaller ubuntu 22.04
-docker run -itd -p 8080:8080 --name ubuntu-autoinstaller-22.04  jetfuls/ubuntu-autoinstaller:1.0-ubuntu22.04
+# UbuntuCraft ubuntu 22.04
+docker run -itd -p 8080:8080 --name ubuntu-craft-22.04  jetfuls/ubuntu-craft:1.0-ubuntu22.04
 # or
-docker run -itd -p 8080:8080 --name ubuntu-autoinstaller-22.04  crpi-g7nxbvns4i9rnvaf.cn-hangzhou.personal.cr.aliyuncs.com/jetfuls/ubuntu-autoinstaller:1.0-ubuntu22.04
+docker run -itd -p 8080:8080 --name ubuntu-craft-22.04  crpi-g7nxbvns4i9rnvaf.cn-hangzhou.personal.cr.aliyuncs.com/jetfuls/ubuntu-craft:1.0-ubuntu22.04
 
 
-# ubuntu-autoinstaller ubuntu 24.04
-docker run -itd -p 8080:8080 --name ubuntu-autoinstaller-24.04  jetfuls/ubuntu-autoinstaller:1.0-ubuntu24.04
+# UbuntuCraft ubuntu 24.04
+docker run -itd -p 8080:8080 --name ubuntu-craft-24.04  jetfuls/ubuntu-craft:1.0-ubuntu24.04
 # or
-docker run -itd -p 8080:8080 --name ubuntu-autoinstaller-24.04  crpi-g7nxbvns4i9rnvaf.cn-hangzhou.personal.cr.aliyuncs.com/jetfuls/ubuntu-autoinstaller:1.0-ubuntu24.04
+docker run -itd -p 8080:8080 --name ubuntu-craft-24.04  crpi-g7nxbvns4i9rnvaf.cn-hangzhou.personal.cr.aliyuncs.com/jetfuls/ubuntu-craft:1.0-ubuntu24.04
 ```
 
 **Step 3: Access the service**
@@ -114,19 +116,19 @@ Once the container is running, you can access:
 
 ```bash
 # View container logs
-docker logs ubuntu-autoinstaller-22.04
+docker logs ubuntu-craft-22.04
 
 # Follow logs in real-time
-docker logs -f ubuntu-autoinstaller-22.04
+docker logs -f ubuntu-craft-22.04
 
 # Stop the container
-docker stop ubuntu-autoinstaller-22.04
+docker stop ubuntu-craft-22.04
 
 # Start the container again
-docker start ubuntu-autoinstaller-22.04
+docker start ubuntu-craft-22.04
 
 # Remove the container
-docker rm -f ubuntu-autoinstaller-22.04
+docker rm -f ubuntu-craft-22.04
 ```
 
 
@@ -139,7 +141,7 @@ You can build a docker image locally with the following commands:
 make docker-build REGISTRY_USER=jetfuls APP_VERSION=1.0 UBUNTU_VERSION=22.04
 
 # Run
-make docker-run DOCKER_IMAGE=jetfuls/ubuntu-autoinstaller:1.0-ubuntu22.04
+make docker-run DOCKER_IMAGE=jetfuls/ubuntu-craft:1.0-ubuntu22.04
 ```
 Notes:
 - `REGISTRY_USER`: your Docker registry username
@@ -167,7 +169,7 @@ make compose-down
 
 ### Health Check
 
-To check the health of your Autouiso instance, use the following command:
+To check the health of your UbuntuCraft instance, use the following command:
 
 ```bash
 curl -sf http://localhost:8080/health && echo OK || echo FAIL
@@ -185,11 +187,12 @@ Considering that this project is designed for Ubuntu:
 ### Documentation
 
 - [DM-Crypt Storage Configuration](docs/dm-crypt-configuration.md) — How to configure full-disk encryption with `key` or `keyfile`
+- [Swap Configuration](docs/swap-configuration.md) — How to configure swap file (size, maxsize, filename, force)
 
 ### FAQ
 
 - **Blank UI / 404?** → Check `STATIC_DIR` path
-- **Health check fails?** → Inspect logs: `docker logs autouiso`
+- **Health check fails?** → Inspect logs: `docker logs ubuntu-craft`
 - **ISO build fails?** → Fix config validation errors, then check network
 
 

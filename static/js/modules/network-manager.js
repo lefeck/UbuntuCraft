@@ -72,9 +72,9 @@ function initNetworkDevices() {
 }
 
 /**
- * Add network device configuration 
+ * Add network device configuration
  */
-function addNetworkDevice(deviceType = 'ethernets', deviceName = '', dhcp4 = true, dhcp6 = false, addresses = []) {
+function addNetworkDevice(deviceType = 'ethernets', deviceName = '', dhcp4 = true, dhcp6 = false, addresses = [], interfaces = [], bondParams = {}) {
     const container = document.getElementById('networkDevices');
     if (!container) return;
     
@@ -187,8 +187,8 @@ function addNetworkDevice(deviceType = 'ethernets', deviceName = '', dhcp4 = tru
         .map(d => d.querySelector('.device-name-input')?.value)
         .filter(Boolean);
 
-    // Type-specific fields (pass available interfaces for bridges pre-filling)
-    let typeSpecificFields = getDeviceSpecificFields(deviceType, deviceName, ethernetNames);
+    // Type-specific fields (pass available interfaces for bridges pre-filling and bond params)
+    let typeSpecificFields = getDeviceSpecificFields(deviceType, deviceName, ethernetNames, bondParams, interfaces);
 
     // Routes configuration (default single column)
     let routesConfig = getRoutesConfigHtml();
@@ -234,7 +234,7 @@ function addNetworkDevice(deviceType = 'ethernets', deviceName = '', dhcp4 = tru
 /**
  * Get device-specific configuration fields
  */
-function getDeviceSpecificFields(deviceType, deviceName, availableInterfaces = []) {
+function getDeviceSpecificFields(deviceType, deviceName, bridgeInterfaces = [], bondParams = {}, bondInterfaces = []) {
     let specificFields = '';
     
     switch (deviceType) {
@@ -282,7 +282,7 @@ function getDeviceSpecificFields(deviceType, deviceName, availableInterfaces = [
             
         case 'bridges':
             // Pre-fill existing ethernet interface names (if they exist)
-            const prefillIfaces = (availableInterfaces && availableInterfaces.length) ? availableInterfaces.join(', ') : '';
+            const prefillIfaces = (bridgeInterfaces && bridgeInterfaces.length) ? bridgeInterfaces.join(', ') : '';
             specificFields = `
                 <div class="form-row">
                     <div class="form-group">
@@ -310,47 +310,51 @@ function getDeviceSpecificFields(deviceType, deviceName, availableInterfaces = [
             break;
             
         case 'bonds':
+            const prefillBondIfaces = (bondInterfaces && bondInterfaces.length) ? bondInterfaces.join(', ') : '';
+            const bondMode = bondParams.mode || '';
+            const bondLacpRate = bondParams['lacp-rate'] || '';
+            const bondMinLinks = bondParams['min-links'] || '';
             specificFields = `
                 <div class="form-row">
                     <div class="form-group">
                         <label>Bond Interfaces (comma separated) <span class="hint-icon" data-tooltip="Member interfaces to bond (e.g. eth0, eth1)">?</span></label>
-                        <input type="text" class="bond-interfaces-input">
+                        <input type="text" class="bond-interfaces-input" value="${prefillBondIfaces}">
                     </div>
                     <div class="form-group">
                         <label>Bond Mode <span class="hint-icon" data-tooltip="Bonding policy / strategy">?</span></label>
                         <select class="bond-mode-input">
-                            <option value="active-backup">Active-Backup</option>
-                            <option value="balance-rr">Balance Round-Robin</option>
-                            <option value="balance-xor">Balance XOR</option>
-                            <option value="broadcast">Broadcast</option>
-                            <option value="802.3ad">802.3ad (LACP)</option>
-                            <option value="balance-tlb">Adaptive TLB</option>
-                            <option value="balance-alb">Adaptive ALB</option>
+                            <option value="active-backup" ${bondMode === 'active-backup' ? 'selected' : ''}>Active-Backup</option>
+                            <option value="balance-rr" ${bondMode === 'balance-rr' ? 'selected' : ''}>Balance Round-Robin</option>
+                            <option value="balance-xor" ${bondMode === 'balance-xor' ? 'selected' : ''}>Balance XOR</option>
+                            <option value="broadcast" ${bondMode === 'broadcast' ? 'selected' : ''}>Broadcast</option>
+                            <option value="802.3ad" ${bondMode === '802.3ad' ? 'selected' : ''}>802.3ad (LACP)</option>
+                            <option value="balance-tlb" ${bondMode === 'balance-tlb' ? 'selected' : ''}>Adaptive TLB</option>
+                            <option value="balance-alb" ${bondMode === 'balance-alb' ? 'selected' : ''}>Adaptive ALB</option>
                         </select>
                     </div>
                 </div>
                 <div class="form-row">
                     <div class="form-group">
                         <label class="optional">Primary Interface <span class="hint-icon" data-tooltip="Primary slave for active-backup mode (e.g. eth0)">?</span></label>
-                        <input type="text" class="bond-primary-input">
+                        <input type="text" class="bond-primary-input" value="${bondParams.primary || ''}">
                     </div>
                     <div class="form-group">
                         <label class="optional">MII Monitor Interval <span class="hint-icon" data-tooltip="Link monitoring frequency (e.g. 100) ms">?</span></label>
-                        <input type="number" class="bond-mii-input"  min="0">
+                        <input type="number" class="bond-mii-input" value="${bondParams['mii-monitor-interval'] || ''}" min="0">
                     </div>
                 </div>
                 <div class="form-row">
                     <div class="form-group">
                         <label class="optional">LACP Rate <span class="hint-icon" data-tooltip="Negotiation rate for 802.3ad">?</span></label>
                         <select class="bond-lacp-rate-input">
-                            <option value="">Default</option>
-                            <option value="slow">Slow</option>
-                            <option value="fast">Fast</option>
+                            <option value="" ${bondLacpRate === '' ? 'selected' : ''}>Default</option>
+                            <option value="slow" ${bondLacpRate === 'slow' ? 'selected' : ''}>Slow</option>
+                            <option value="fast" ${bondLacpRate === 'fast' ? 'selected' : ''}>Fast</option>
                         </select>
                     </div>
                     <div class="form-group">
                         <label class="optional">Minimum Links <span class="hint-icon" data-tooltip="Minimum active links required">?</span></label>
-                        <input type="number" class="bond-min-links-input" placeholder="e.g., 1" min="0">
+                        <input type="number" class="bond-min-links-input" value="${bondMinLinks}" placeholder="e.g., 1" min="0">
                     </div>
                 </div>`;
             break;
@@ -1120,12 +1124,23 @@ function validateNetworkConfig(statusId = 'configStatus') {
     });
 
     if (errors.length > 0) {
-        // Scroll to first error
-        const firstError = document.querySelector('#networkDevices .input-error');
-        if (firstError && firstError.scrollIntoView) {
-            firstError.scrollIntoView({ behavior: 'smooth', block: 'center' });
-            try { firstError.focus(); } catch (_) {}
+        // Switch to Network tab first
+        if (typeof switchTab === 'function') {
+            switchTab('network');
+        } else if (window.UIUtils && window.UIUtils.switchTab) {
+            window.UIUtils.switchTab('network');
         }
+
+        // Small delay to allow tab switch animation
+        setTimeout(() => {
+            // Scroll to first error
+            const firstError = document.querySelector('#networkDevices .input-error');
+            if (firstError && firstError.scrollIntoView) {
+                firstError.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                try { firstError.focus(); } catch (_) {}
+            }
+        }, 50);
+
         if (window.ConfigManager && window.ConfigManager.showStatus) {
             window.ConfigManager.showStatus(statusId, 'error', 'Network validation failed: ' + errors.join(', '));
         }
@@ -1137,9 +1152,153 @@ function validateNetworkConfig(statusId = 'configStatus') {
     };
 }
 
+/**
+ * Load network config from parsed YAML and populate the form
+ */
+function loadFromConfig(network) {
+    const container = document.getElementById('networkDevices');
+    if (!container || !network) return;
+    container.innerHTML = '';
+
+    // Version and renderer
+    if (network.version !== undefined) setFormValue('networkVersion', String(network.version));
+    if (network.renderer) setSelectValue('networkRenderer', network.renderer);
+
+    // Iterate all device types
+    const deviceTypes = [
+        'ethernets', 'wifis', 'bridges', 'bonds',
+        'vlans', 'tunnels', 'vrfs',
+        'dummy-devices', 'modems', 'nm-devices'
+    ];
+    deviceTypes.forEach(type => {
+        const devices = network[type];
+        if (!devices || typeof devices !== 'object') return;
+        Object.entries(devices).forEach(([name, device]) => {
+            const dhcp4 = device.dhcp4 !== undefined ? device.dhcp4 : false;
+            const dhcp6 = device.dhcp6 !== undefined ? device.dhcp6 : false;
+            const addresses = device.addresses || [];
+            // Pass interfaces for bonds/bridges and bond parameters
+            const interfaces = device.interfaces || [];
+            const bondParams = (type === 'bonds' && device.parameters) ? device.parameters : {};
+            addNetworkDevice(type, name, dhcp4, dhcp6, addresses, interfaces, bondParams);
+        });
+    });
+
+    // Fill device details after DOM is rendered
+    setTimeout(() => {
+        const deviceEls = container.querySelectorAll('.network-device');
+        deviceEls.forEach(el => {
+            const nameInput = el.querySelector('.device-name-input');
+            if (!nameInput) return;
+            const deviceName = nameInput.value;
+
+            // Find matching YAML device data
+            let deviceData = null;
+            for (const type of deviceTypes) {
+                if (network[type] && network[type][deviceName]) {
+                    deviceData = network[type][deviceName];
+                    break;
+                }
+            }
+            if (!deviceData) return;
+
+            // Nameservers
+            if (deviceData.nameservers) {
+                const nsInput = el.querySelector('.device-nameservers-input');
+                if (nsInput && deviceData.nameservers.addresses) {
+                    nsInput.value = deviceData.nameservers.addresses.join('\n');
+                }
+                const searchInput = el.querySelector('.device-search-domains-input');
+                if (searchInput && deviceData.nameservers.search) {
+                    searchInput.value = deviceData.nameservers.search.join(', ');
+                }
+            }
+
+            // Static addresses (addresses were set via addNetworkDevice, but if dhcp is on/off overrides, fill it)
+            if (!deviceData.dhcp4 && deviceData.addresses) {
+                const addrInput = el.querySelector('.device-addresses-input');
+                if (addrInput) addrInput.value = deviceData.addresses.join('\n');
+            }
+
+            // Routes
+            if (deviceData.routes && Array.isArray(deviceData.routes)) {
+                deviceData.routes.forEach((route, i) => {
+                    if (i > 0) addDeviceRoute(el);
+                });
+                setTimeout(() => {
+                    const routeEls = el.querySelectorAll('.route-item');
+                    deviceData.routes.forEach((route, i) => {
+                        const r = routeEls[i];
+                        if (!r) return;
+                        if (route.to) {
+                            const to = r.querySelector('.route-to-input');
+                            if (to) to.value = route.to;
+                        }
+                        if (route.via) {
+                            const via = r.querySelector('.route-via-input');
+                            if (via) via.value = route.via;
+                        }
+                        if (route.metric !== undefined) {
+                            const metric = r.querySelector('.route-metric-input');
+                            if (metric) metric.value = route.metric;
+                        }
+                    });
+                }, 100);
+            }
+
+            // MTU
+            if (deviceData.mtu !== undefined) {
+                const mtu = el.querySelector('.device-mtu-input');
+                if (mtu) mtu.value = deviceData.mtu;
+            }
+
+            // Optional flag
+            if (deviceData.optional !== undefined) {
+                const opt = el.querySelector('.device-optional-select');
+                if (opt) opt.value = deviceData.optional ? 'true' : 'false';
+            }
+
+            // WiFi access points
+            if (deviceData['access-points']) {
+                Object.entries(deviceData['access-points']).forEach(([ssid, ap], i) => {
+                    if (i > 0) addAccessPoint(el);
+                });
+                setTimeout(() => {
+                    const apEls = el.querySelectorAll('.wifi-ap-row');
+                    Object.entries(deviceData['access-points']).forEach(([ssid, ap], i) => {
+                        const row = apEls[i];
+                        if (!row) return;
+                        const ssidInput = row.querySelector('.ap-ssid-input');
+                        if (ssidInput) ssidInput.value = ssid;
+                        const pwInput = row.querySelector('.ap-password-input');
+                        if (pwInput && ap.password) pwInput.value = ap.password;
+                    });
+                }, 100);
+            }
+        });
+    }, 150);
+}
+
+/**
+ * Set select element value helper
+ */
+function setSelectValue(id, value) {
+    const el = document.getElementById(id);
+    if (el) el.value = value;
+}
+
+/**
+ * Set input/textarea element value helper
+ */
+function setFormValue(id, value) {
+    const el = document.getElementById(id);
+    if (el) el.value = value;
+}
+
 // Export functions for use in other modules
 window.NetworkManager = {
     initNetworkDevices,
+    loadFromConfig,
     addNetworkDevice,
     updateNetworkDevice,
     removeNetworkDevice,

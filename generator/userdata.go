@@ -6,7 +6,6 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/lefeck/ubuntu-autoinstaller/config"
-	"github.com/lefeck/ubuntu-autoinstaller/utils"
 )
 
 // UserDataGenerator generates cloud-init user-data content.
@@ -24,14 +23,8 @@ func (gen *UserDataGenerator) GenerateFromConfig(cfg *config.Config) ([]byte, er
 		return nil, fmt.Errorf("config validation failed: %v", err)
 	}
 
-	// Ensure identity.password is hashed with SHA-512 crypt ($6$...)
-	if cfg.Autoinstall.Identity.Password != "" && !utils.IsSHA512Crypt(cfg.Autoinstall.Identity.Password) {
-		hashed, err := utils.HashSHA512Crypt(cfg.Autoinstall.Identity.Password)
-		if err != nil {
-			return nil, fmt.Errorf("failed to hash password: %v", err)
-		}
-		cfg.Autoinstall.Identity.Password = hashed
-	}
+	// Password is used as-is (assumed to be already hashed in templates)
+	// No automatic encryption - template values are used directly
 
 	// Generate user-data YAML content
 	userData, err := gen.generateUserData(cfg)
@@ -53,9 +46,35 @@ func (gen *UserDataGenerator) validateConfig(cfg *config.Config) error {
 }
 
 // generateUserData marshals the config into YAML with #cloud-config header.
+// It explicitly excludes EmbeddedFiles since that's not a valid cloud-init parameter.
 func (gen *UserDataGenerator) generateUserData(cfg *config.Config) ([]byte, error) {
-	// Serialize config directly to avoid omitempty surprises via interface{}
-	data, err := yaml.Marshal(cfg)
+	// Create a copy without EmbeddedFiles to avoid including it in cloud-init user-data
+	cloudCfg := config.Config{
+		Autoinstall: config.Autoinstall{
+			Apt:           cfg.Autoinstall.Apt,
+			Drivers:       cfg.Autoinstall.Drivers,
+			Identity:      cfg.Autoinstall.Identity,
+			Kernel:        cfg.Autoinstall.Kernel,
+			Keyboard:      cfg.Autoinstall.Keyboard,
+			Locale:        cfg.Autoinstall.Locale,
+			Network:       cfg.Autoinstall.Network,
+			SSH:           cfg.Autoinstall.SSH,
+			Storage:       cfg.Autoinstall.Storage,
+			Updates:       cfg.Autoinstall.Updates,
+			Shutdown:      cfg.Autoinstall.Shutdown,
+			Version:       cfg.Autoinstall.Version,
+			Packages:      cfg.Autoinstall.Packages,
+			EarlyCommands: cfg.Autoinstall.EarlyCommands,
+			LateCommands:  cfg.Autoinstall.LateCommands,
+			ErrorCommands: cfg.Autoinstall.ErrorCommands,
+			UserData:      cfg.Autoinstall.UserData,
+			TimeZone:      cfg.Autoinstall.TimeZone,
+			// Explicitly exclude EmbeddedFiles - not a valid cloud-init parameter
+		},
+	}
+
+	// Serialize config to YAML
+	data, err := yaml.Marshal(cloudCfg)
 	if err != nil {
 		return nil, fmt.Errorf("failed to marshal YAML: %v", err)
 	}

@@ -1,6 +1,7 @@
 package api
 
 import (
+	"encoding/base64"
 	"fmt"
 	"net/http"
 	"os"
@@ -109,13 +110,25 @@ func (h *Handler) GenerateUserData(c *gin.Context) {
 // @Failure 500 {object} map[string]interface{} "Failed to generate default config"
 // @Router /config/default [get]
 func (h *Handler) GetDefaultConfig(c *gin.Context) {
-	defaultConfig := config.NewDefaultConfig()
-
-	// Convert to YAML format
-	yamlData, err := h.userDataGen.SaveConfigToYAML(defaultConfig)
+	yamlData, err := config.LoadTemplateYAML("default")
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
-			"error": "Failed to generate default config: " + err.Error(),
+			"error": "Failed to load default template: " + err.Error(),
+		})
+		return
+	}
+
+	// Hard error on invalid templates (parse + validate)
+	cfg, err := h.userDataGen.LoadConfigFromYAML(yamlData)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error": "Invalid default template YAML: " + err.Error(),
+		})
+		return
+	}
+	if err := cfg.Validate(); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error": "Invalid default template config: " + err.Error(),
 		})
 		return
 	}
@@ -250,16 +263,17 @@ func (h *Handler) PreviewUserData(c *gin.Context) {
 
 // GenerateISORequest Generate ISO request structure
 type GenerateISORequest struct {
-	SourceType     string   `json:"sourceType" binding:"required"` // "local" or "download"
-	SourceISO      string   `json:"sourceISO"`                     // Local ISO file path (when sourceType is "local")
-	CodeName       string   `json:"codeName"`                      // Ubuntu release name (when sourceType is "download")
-	DestinationISO string   `json:"destinationISO"`                // Output ISO file path
-	UserData       string   `json:"userData" binding:"required"`   // user-data configuration content
-	PackageList    []string `json:"packageList"`                   // Additional package list
-	UseHWEKernel   bool     `json:"useHWEKernel"`                  // Whether to use HWE kernel
-	MD5Checksum    bool     `json:"md5Checksum"`                   // Whether to update MD5 checksum
-	GPGVerify      bool     `json:"gpgVerify"`                     // Whether to perform GPG verification
-	Apps           string   `json:"apps"`                          // local build Application packages
+	SourceType     string                `json:"sourceType" binding:"required"` // "local" or "download"
+	SourceISO      string                `json:"sourceISO"`                     // Local ISO file path (when sourceType is "local")
+	CodeName       string                `json:"codeName"`                      // Ubuntu release name (when sourceType is "download")
+	DestinationISO string                `json:"destinationISO"`                // Output ISO file path
+	UserData       string                `json:"userData" binding:"required"`   // user-data configuration content
+	PackageList    []string              `json:"packageList"`                   // Additional package list
+	UseHWEKernel   bool                  `json:"useHWEKernel"`                  // Whether to use HWE kernel
+	MD5Checksum    bool                  `json:"md5Checksum"`                   // Whether to update MD5 checksum
+	GPGVerify      bool                  `json:"gpgVerify"`                     // Whether to perform GPG verification
+	Apps           string                `json:"apps"`                          // local build Application packages
+	EmbeddedFiles  []config.EmbeddedFile `json:"embeddedFiles"`                 // Custom files to inject into ISO
 }
 
 // validateGenerateISORequest Validate ISO generation request parameters
@@ -435,13 +449,14 @@ func (h *Handler) uploadISO(c *gin.Context) (string, error) {
 
 // UploadISOHandler is the Gin API wrapper
 // @Summary Upload ISO file
-// @Description Upload an ISO file to the server
+// @Description Upload an ISO file to the server and extract it automatically
 // @Tags iso
 // @Accept multipart/form-data
 // @Produce json
 // @Param iso formData file true "ISO file to upload"
-// @Success 200 {object} map[string]interface{} "ISO file uploaded successfully"
+// @Success 200 {object} map[string]interface{} "ISO file uploaded and extracted successfully"
 // @Failure 400 {object} map[string]interface{} "Failed to upload ISO file"
+// @Failure 500 {object} map[string]interface{} "Failed to extract ISO"
 // @Router /iso/upload [post]
 func (h *Handler) UploadISO(c *gin.Context) {
 	dst, err := h.uploadISO(c)
@@ -454,10 +469,27 @@ func (h *Handler) UploadISO(c *gin.Context) {
 	}
 
 	logger.Info("Successfully uploaded ISO file: ", dst)
+
+	// Get ISO metadata for codename
+	imageMeta, err := utils.NewImageMeta(dst)
+	if err != nil {
+		logger.Warn("Failed to read ISO metadata: ", err)
+		// Return success even if metadata reading fails
+		c.JSON(http.StatusOK, gin.H{
+			"success":  true,
+			"filePath": dst,
+			"fileName": filepath.Base(dst),
+			"message":  "ISO file uploaded successfully",
+		})
+		return
+	}
+
+	// Return success - extraction will happen when Generate ISO Image is clicked
 	c.JSON(http.StatusOK, gin.H{
 		"success":  true,
 		"filePath": dst,
 		"fileName": filepath.Base(dst),
+		"codeName": imageMeta.CodeName,
 		"message":  "ISO file uploaded successfully",
 	})
 }
@@ -525,13 +557,14 @@ func (h *Handler) buildProcessWithStatus(request *GenerateISORequest, status *Bu
 		}
 	}
 
-	// Step 3: Extract ISO image
+	// Step 3: Extract ISO image (always extract to ensure fresh state)
 	status.Steps["extract"] = "running"
 	status.Logs = append(status.Logs, "📂 Extracting ISO contents...")
 	if err := h.generator.ExtractISO(imageMeta.CodeName, localImagePath); err != nil {
 		return fmt.Errorf("ISO extraction failed: %w", err)
 	}
-	updateProgress(50, "extract", "✅ ISO contents extracted")
+	status.Logs = append(status.Logs, "✅ ISO contents extracted")
+	updateProgress(50, "extract", "✅ ISO extracted")
 
 	// Step 4: Add configuration data (user-data and meta-data)
 	status.Steps["inject"] = "running"
@@ -545,6 +578,16 @@ func (h *Handler) buildProcessWithStatus(request *GenerateISORequest, status *Bu
 		return fmt.Errorf("failed to add config data: %w", err)
 	}
 	updateProgress(60, "inject", "✅ user-data injected")
+
+	// Step 4b: Inject embedded custom files into ISO
+	if len(request.EmbeddedFiles) > 0 {
+		status.Steps["embedded"] = "running"
+		status.Logs = append(status.Logs, "📁 Injecting embedded custom files...")
+		if err := h.generator.InjectEmbeddedFiles(request.EmbeddedFiles); err != nil {
+			return fmt.Errorf("failed to inject embedded files: %w", err)
+		}
+		updateProgress(63, "embedded", fmt.Sprintf("✅ %d embedded file(s) injected", len(request.EmbeddedFiles)))
+	}
 
 	// Step 5: Download and prepare additional packages (if any)
 	if len(request.PackageList) > 0 {
@@ -661,7 +704,7 @@ func (h *Handler) GetBuildLogs(c *gin.Context) {
 	})
 }
 
-// DownloadISO handles downloading of a generated ISO file by build ID
+// UploadApps Upload additional applications
 // @Summary Download generated ISO
 // @Description Download the ISO file associated with a completed build task
 // @Tags ISO
@@ -785,7 +828,339 @@ func (h *Handler) DownloadISO(c *gin.Context) {
 	c.File(status.Output)
 }
 
-// UploadApps Upload additional applications
+// ResetBuildConfig resets the build configuration and cleans up temporary build files.
+// This allows switching between different build modes without residual configuration.
+// It keeps the directory structure but empties the contents.
+func (h *Handler) ResetBuildConfig(c *gin.Context) {
+	path := h.generator.Path
+
+	// Define directories to clean (keep structure, empty contents)
+	dirsToClean := []string{
+		path.BuildDir(),
+		path.DownloadDir(),
+		path.Packages(),
+		path.Scripts(),
+		path.Mount(),
+	}
+
+	// Clean each directory's contents while preserving the directory structure
+	for _, dir := range dirsToClean {
+		entries, err := os.ReadDir(dir)
+		if err != nil {
+			// Directory might not exist yet, skip it
+			continue
+		}
+		for _, entry := range entries {
+			fullPath := filepath.Join(dir, entry.Name())
+			if err := os.RemoveAll(fullPath); err != nil {
+				logger.Warnf("Failed to remove %s: %v", fullPath, err)
+			}
+		}
+	}
+
+	// Recreate essential subdirectories to maintain structure
+	essentialDirs := []string{
+		path.Mount(),
+		path.Packages(),
+		path.Scripts(),
+		path.DownloadDir(),
+	}
+	for _, dir := range essentialDirs {
+		if err := os.MkdirAll(dir, 0755); err != nil {
+			logger.Warnf("Failed to recreate directory %s: %v", dir, err)
+		}
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"message": "Build configuration reset successfully. Directory structure preserved.",
+	})
+}
+
+// checkISOExtracted verifies whether the ISO has already been extracted into the mount directory.
+func (h *Handler) checkISOExtracted(mountPath string) (bool, error) {
+	fi, err := os.Stat(mountPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return false, nil
+		}
+		return false, err
+	}
+	if !fi.IsDir() {
+		return false, nil
+	}
+	entries, err := os.ReadDir(mountPath)
+	if err != nil {
+		return false, err
+	}
+	return len(entries) > 0, nil
+}
+
+// WriteEmbeddedFile writes a file directly to the extracted ISO directory tree.
+// POST /api/v1/embedded/write
+func (h *Handler) WriteEmbeddedFile(c *gin.Context) {
+	var req struct {
+		Path       string `json:"path" binding:"required"`
+		Content    string `json:"content" binding:"required"`
+		Encoding   string `json:"encoding"`   // "text" or "base64", default "text"
+		Permission string `json:"permission"` // default "0644"
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	// Security: prevent path traversal
+	if strings.Contains(req.Path, "..") {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "path traversal not allowed"})
+		return
+	}
+	// Use /mnt/build/ for embedded files (separate from ISO extraction logic)
+	rootDir := h.generator.Path.Mount()
+	targetPath := filepath.Join(rootDir, req.Path)
+	absRoot, _ := filepath.Abs(rootDir)
+	absTarget, _ := filepath.Abs(targetPath)
+	if !strings.HasPrefix(absTarget, absRoot) {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "path traversal not allowed"})
+		return
+	}
+	parentDir := filepath.Dir(targetPath)
+	if err := os.MkdirAll(parentDir, 0755); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create directory: " + err.Error()})
+		return
+	}
+	var content []byte
+	if req.Encoding == "base64" {
+		decoded, err := base64.StdEncoding.DecodeString(req.Content)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "failed to decode base64: " + err.Error()})
+			return
+		}
+		content = decoded
+	} else {
+		content = []byte(req.Content)
+	}
+	perm := os.FileMode(0644)
+	if req.Permission != "" {
+		fmt.Sscanf(req.Permission, "%o", &perm)
+	}
+	if err := os.WriteFile(targetPath, content, perm); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to write file: " + err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{
+		"success":    true,
+		"targetPath": targetPath,
+		"message":    "File written successfully",
+	})
+}
+
+// DeleteEmbeddedFile deletes a file from the extracted ISO directory tree.
+// DELETE /api/v1/embedded/delete
+func (h *Handler) DeleteEmbeddedFile(c *gin.Context) {
+	var req struct {
+		Path string `json:"path" binding:"required"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	if strings.Contains(req.Path, "..") {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "path traversal not allowed"})
+		return
+	}
+	rootDir := h.generator.Path.Mount()
+	targetPath := filepath.Join(rootDir, req.Path)
+	absRoot, _ := filepath.Abs(rootDir)
+	absTarget, _ := filepath.Abs(targetPath)
+	if !strings.HasPrefix(absTarget, absRoot) {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "path traversal not allowed"})
+		return
+	}
+	if _, err := os.Stat(targetPath); os.IsNotExist(err) {
+		c.JSON(http.StatusNotFound, gin.H{"error": "file not found: " + req.Path})
+		return
+	}
+	if err := os.Remove(targetPath); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to delete file: " + err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"message": "File deleted successfully",
+	})
+}
+
+// MkdirEmbedded creates a directory under the embedded root directory.
+// POST /api/v1/embedded/mkdir
+func (h *Handler) MkdirEmbedded(c *gin.Context) {
+	var req struct {
+		Path string `json:"path" binding:"required"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	if strings.Contains(req.Path, "..") {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "path traversal not allowed"})
+		return
+	}
+	rootDir := h.generator.Path.Mount()
+	targetDir := filepath.Join(rootDir, req.Path)
+	absRoot, _ := filepath.Abs(rootDir)
+	absTarget, _ := filepath.Abs(targetDir)
+	if !strings.HasPrefix(absTarget, absRoot) {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "path traversal not allowed"})
+		return
+	}
+	if err := os.MkdirAll(targetDir, 0755); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create directory: " + err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{
+		"success":   true,
+		"targetDir": targetDir,
+		"message":   "Directory created successfully",
+	})
+}
+
+// ListEmbeddedFiles lists all files under the mount directory.
+// GET /api/v1/embedded/list
+func (h *Handler) ListEmbeddedFiles(c *gin.Context) {
+	rootDir := h.generator.Path.Mount()
+	var files []map[string]interface{}
+	filepath.Walk(rootDir, func(path string, info os.FileInfo, err error) error {
+		if err != nil || info.IsDir() {
+			return nil
+		}
+		relPath, _ := filepath.Rel(rootDir, path)
+		files = append(files, map[string]interface{}{
+			"path":     relPath,
+			"size":     info.Size(),
+			"modified": info.ModTime().Format(time.RFC3339),
+		})
+		return nil
+	})
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"files":   files,
+		"message": "Files listed successfully",
+	})
+}
+
+// ReadEmbeddedFile reads the content of a file from the embedded directory.
+// GET /api/v1/embedded/read
+func (h *Handler) ReadEmbeddedFile(c *gin.Context) {
+	filePath := c.Query("path")
+	if filePath == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "path parameter is required"})
+		return
+	}
+	if strings.Contains(filePath, "..") {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "path traversal not allowed"})
+		return
+	}
+	rootDir := h.generator.Path.Mount()
+	targetPath := filepath.Join(rootDir, filePath)
+	absRoot, _ := filepath.Abs(rootDir)
+	absTarget, _ := filepath.Abs(targetPath)
+	if !strings.HasPrefix(absTarget, absRoot) {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "path traversal not allowed"})
+		return
+	}
+	content, err := os.ReadFile(targetPath)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "file not found: " + err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"content": string(content),
+		"message": "File read successfully",
+	})
+}
+
+// countFiles recursively counts all files (not directories) under the given path.
+func countFiles(path string) int {
+	count := 0
+	entries, err := os.ReadDir(path)
+	if err != nil {
+		return 0
+	}
+	for _, entry := range entries {
+		if entry.IsDir() {
+			count += countFiles(filepath.Join(path, entry.Name()))
+		} else {
+			count++
+		}
+	}
+	return count
+}
+
+// ListDirectory lists files and subdirectories under a given path within the embedded directory.
+// GET /api/v1/embedded/dir?path=<relpath>
+func (h *Handler) ListDirectory(c *gin.Context) {
+	rootDir := h.generator.Path.Mount()
+	relPath := c.Query("path")
+	if relPath == "" {
+		relPath = "/"
+	}
+	if strings.Contains(relPath, "..") {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "path traversal not allowed"})
+		return
+	}
+	targetDir := filepath.Join(rootDir, relPath)
+	absRoot, _ := filepath.Abs(rootDir)
+	absTarget, _ := filepath.Abs(targetDir)
+	if !strings.HasPrefix(absTarget, absRoot) {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "path traversal not allowed"})
+		return
+	}
+	if _, err := os.Stat(targetDir); os.IsNotExist(err) {
+		c.JSON(http.StatusOK, gin.H{
+			"success": true,
+			"path":    relPath,
+			"rootDir": rootDir,
+			"dirs":    []map[string]interface{}{},
+			"files":   []map[string]interface{}{},
+			"message": "Directory is empty or does not exist",
+		})
+		return
+	}
+	entries, err := os.ReadDir(targetDir)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to read directory: " + err.Error()})
+		return
+	}
+	var dirs []map[string]interface{}
+	var files []map[string]interface{}
+	for _, entry := range entries {
+		if entry.IsDir() {
+			subPath := filepath.Join(targetDir, entry.Name())
+			fileCount := countFiles(subPath)
+			dirs = append(dirs, map[string]interface{}{
+				"name":      entry.Name(),
+				"fileCount": fileCount,
+			})
+		} else {
+			info, _ := entry.Info()
+			files = append(files, map[string]interface{}{
+				"name":     entry.Name(),
+				"size":     info.Size(),
+				"modified": info.ModTime().Format(time.RFC3339),
+			})
+		}
+	}
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"path":    relPath,
+		"rootDir": rootDir,
+		"dirs":    dirs,
+		"files":   files,
+		"message": "Directory listed successfully",
+	})
+}
+
+// DownloadISO handles downloading of a generated ISO file by build ID
 func (h *Handler) UploadApp(c *gin.Context) {
 	appFile, err := c.FormFile("app")
 	if err != nil {
@@ -828,11 +1203,315 @@ func (h *Handler) UploadApp(c *gin.Context) {
 		})
 		return
 	}
-	return
 }
 
 // fileExists Helper function: check if file exists
 func fileExists(path string) bool {
 	_, err := os.Stat(path)
 	return err == nil
+}
+
+// ListTemplates returns a list of all available templates
+// @Summary List all templates
+// @Description Get all available templates (both preset and user-defined)
+// @Tags templates
+// @Produce json
+// @Success 200 {object} map[string]interface{} "Templates retrieved successfully"
+// @Failure 500 {object} map[string]interface{} "Failed to list templates"
+// @Router /templates [get]
+func (h *Handler) ListTemplates(c *gin.Context) {
+	templates, err := config.ListTemplates()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error": err.Error(),
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"success":   true,
+		"templates": templates,
+		"message":   "Templates retrieved successfully",
+	})
+}
+
+// GetTemplate returns a specific template by name
+// @Summary Get a template
+// @Description Get a specific template by its name
+// @Tags templates
+// @Produce json
+// @Param name path string true "Template name"
+// @Success 200 {object} map[string]interface{} "Template retrieved successfully"
+// @Failure 404 {object} map[string]interface{} "Template not found"
+// @Failure 500 {object} map[string]interface{} "Failed to get template"
+// @Router /templates/{name} [get]
+func (h *Handler) GetTemplate(c *gin.Context) {
+	name := c.Param("name")
+	if name == "" {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error": "Template name is required",
+		})
+		return
+	}
+
+	yamlContent, err := config.LoadTemplateYAML(name)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{
+			"error": "Template not found: " + err.Error(),
+		})
+		return
+	}
+
+	// Parse the config to get metadata
+	templateConfig, err := config.LoadTemplate(name)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error": "Failed to parse template: " + err.Error(),
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"name":    name,
+		"yaml":    string(yamlContent),
+		"config":  templateConfig,
+		"message": "Template retrieved successfully",
+	})
+}
+
+// SaveUserTemplate saves a new user template
+// @Summary Save a user template
+// @Description Save the current configuration as a user template
+// @Tags templates
+// @Accept json
+// @Produce json
+// @Param request body SaveTemplateRequest true "Template to save"
+// @Success 200 {object} map[string]interface{} "Template saved successfully"
+// @Failure 400 {object} map[string]interface{} "Invalid request"
+// @Failure 500 {object} map[string]interface{} "Failed to save template"
+// @Router /templates/save [post]
+func (h *Handler) SaveUserTemplate(c *gin.Context) {
+	var request struct {
+		Name   string         `json:"name" binding:"required"`
+		Config *config.Config `json:"config" binding:"required"`
+	}
+
+	if err := c.ShouldBindJSON(&request); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error": "Invalid request: " + err.Error(),
+		})
+		return
+	}
+
+	// Check if template already exists as a preset (built-in)
+	if config.PresetExists(request.Name) {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error": "Cannot overwrite built-in templates",
+		})
+		return
+	}
+
+	if err := config.SaveUserTemplate(request.Name, request.Config); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error": "Failed to save template: " + err.Error(),
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"name":    request.Name,
+		"message": "Template saved successfully",
+	})
+}
+
+// SaveUserTemplateYAML saves a user template with raw YAML content
+// @Summary Save a user template with raw YAML
+// @Description Save raw YAML content as a user template (preserves all formatting)
+// @Tags templates
+// @Accept json
+// @Produce json
+// @Param request body SaveTemplateYAMLRequest true "Template data"
+// @Success 200 {object} map[string]interface{} "Template saved successfully"
+// @Failure 400 {object} map[string]interface{} "Invalid request"
+// @Failure 500 {object} map[string]interface{} "Failed to save template"
+// @Router /templates/save-yaml [post]
+func (h *Handler) SaveUserTemplateYAML(c *gin.Context) {
+	var request SaveTemplateYAMLRequest
+	if err := c.ShouldBindJSON(&request); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error": "Invalid request: " + err.Error(),
+		})
+		return
+	}
+
+	// Check if template already exists as a preset (built-in)
+	if config.PresetExists(request.Name) {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error": "Cannot overwrite built-in templates",
+		})
+		return
+	}
+
+	if err := config.SaveUserTemplateYAML(request.Name, request.YAML); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error": "Failed to save template: " + err.Error(),
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"name":    request.Name,
+		"message": "Template saved successfully",
+	})
+}
+
+// SaveTemplateYAMLRequest represents a request to save a template with raw YAML
+type SaveTemplateYAMLRequest struct {
+	Name string `json:"name" binding:"required"`
+	YAML string `json:"yaml" binding:"required"`
+}
+
+// ParseYAML parses YAML content and returns the config object
+// @Summary Parse YAML
+// @Description Parse YAML content and return the config object (used for template editor validation)
+// @Tags templates
+// @Accept json
+// @Produce json
+// @Param request body ParseYAMLRequest true "YAML content to parse"
+// @Success 200 {object} map[string]interface{} "YAML parsed successfully"
+// @Failure 400 {object} map[string]interface{} "Invalid YAML"
+// @Failure 500 {object} map[string]interface{} "Parse error"
+// @Router /templates/parse [post]
+func (h *Handler) ParseYAML(c *gin.Context) {
+	var request ParseYAMLRequest
+	if err := c.ShouldBindJSON(&request); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request: " + err.Error()})
+		return
+	}
+	cfg, err := h.userDataGen.LoadConfigFromYAML([]byte(request.YAML))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid YAML: " + err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"success": true, "config": cfg})
+}
+
+// ParseYAMLRequest represents a request to parse YAML content
+type ParseYAMLRequest struct {
+	YAML string `json:"yaml" binding:"required"`
+}
+
+// DeleteUserTemplate deletes a user template
+// @Summary Delete a user template
+// @Description Delete a user-defined template by name
+// @Tags templates
+// @Produce json
+// @Param name path string true "Template name"
+// @Success 200 {object} map[string]interface{} "Template deleted successfully"
+// @Failure 400 {object} map[string]interface{} "Cannot delete built-in templates"
+// @Failure 404 {object} map[string]interface{} "Template not found"
+// @Failure 500 {object} map[string]interface{} "Failed to delete template"
+// @Router /templates/{name} [delete]
+func (h *Handler) DeleteUserTemplate(c *gin.Context) {
+	name := c.Param("name")
+	if name == "" {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error": "Template name is required",
+		})
+		return
+	}
+
+	// Check if it's a built-in template
+	templates, err := config.ListTemplates()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error": "Failed to list templates: " + err.Error(),
+		})
+		return
+	}
+
+	for _, t := range templates {
+		if t.Filename == name && t.IsBuiltIn {
+			c.JSON(http.StatusBadRequest, gin.H{
+				"error": "Cannot delete built-in templates",
+			})
+			return
+		}
+	}
+
+	if err := config.DeleteUserTemplate(name); err != nil {
+		c.JSON(http.StatusNotFound, gin.H{
+			"error": "Template not found: " + err.Error(),
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"name":    name,
+		"message": "Template deleted successfully",
+	})
+}
+
+// ImportTemplate imports a template from uploaded YAML content
+// @Summary Import a template
+// @Description Import a template from YAML content
+// @Tags templates
+// @Accept json
+// @Produce json
+// @Param request body ImportTemplateRequest true "Template to import"
+// @Success 200 {object} map[string]interface{} "Template imported successfully"
+// @Failure 400 {object} map[string]interface{} "Invalid request"
+// @Failure 500 {object} map[string]interface{} "Failed to import template"
+// @Router /templates/import [post]
+func (h *Handler) ImportTemplate(c *gin.Context) {
+	var request struct {
+		Name string `json:"name" binding:"required"`
+		YAML string `json:"yaml" binding:"required"`
+	}
+
+	if err := c.ShouldBindJSON(&request); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error": "Invalid request: " + err.Error(),
+		})
+		return
+	}
+
+	// Validate YAML format (but accept any valid YAML, not just autoinstall)
+	_, err := h.userDataGen.LoadConfigFromYAML([]byte(request.YAML))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error": "Invalid YAML format: " + err.Error(),
+		})
+		return
+	}
+
+	// Save the raw YAML directly to preserve formatting
+	if err := config.SaveUserTemplateYAML(request.Name, request.YAML); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error": "Failed to save template: " + err.Error(),
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"name":    request.Name,
+		"message": "Template imported successfully",
+	})
+}
+
+// SaveTemplateRequest represents a request to save a template
+type SaveTemplateRequest struct {
+	Name   string         `json:"name" binding:"required"`
+	Config *config.Config `json:"config" binding:"required"`
+}
+
+// ImportTemplateRequest represents a request to import a template
+type ImportTemplateRequest struct {
+	Name string `json:"name" binding:"required"`
+	YAML string `json:"yaml" binding:"required"`
 }

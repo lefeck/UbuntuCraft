@@ -76,6 +76,10 @@ definitions:
         items:
           type: string
         type: array
+      error-commands:
+        items:
+          type: string
+        type: array
       locale:
         type: string
       network:

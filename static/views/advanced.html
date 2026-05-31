@@ -1,16 +1,20 @@
 <div class="form-group">
-    <label class="optional">Package List (one per line) <span class="hint-icon" data-tooltip="Additional packages to install">?</span></label>
-    <textarea id="packages" rows="4" placeholder="Example:&#10;curl&#10;wget&#10;vim"></textarea>
-  </div>
-  <div class="form-group">
+    <label class="optional">Autoinstall Packages (one per line) <span class="hint-icon" data-tooltip="Packages to install during Ubuntu autoinstall (cloud-init). Enter one package name per line.">?</span></label>
+    <textarea id="autoinstallPackages" rows="4" placeholder="Example:&#10;curl&#10;wget&#10;vim"></textarea>
+</div>
+<div class="form-group">
     <label class="optional">Early Commands (one per line) <span class="hint-icon" data-tooltip="Commands executed early during install">?</span></label>
     <textarea id="earlyCommands" rows="6" placeholder="Example:&#10;echo start"></textarea>
-  </div>
-  <div class="form-group">
+</div>
+<div class="form-group">
     <label class="optional">Late Commands (one per line) <span class="hint-icon" data-tooltip="Commands executed near the end of install">?</span></label>
     <textarea id="lateCommands" rows="8" placeholder="Example:&#10;cp -rp /cdrom/mnt /target/&#10;chmod +x /target/mnt/script/install-pkgs.sh"></textarea>
-  </div>
-  <div class="form-group">
+</div>
+<div class="form-group">
+    <label class="optional">Error Commands (one per line) <span class="hint-icon" data-tooltip="Commands executed when an error occurs during install">?</span></label>
+    <textarea id="errorCommands" rows="6" placeholder="Example:&#10;echo 'Install error occurred' | tee /target/var/log/install-error.log"></textarea>
+</div>
+<div class="form-group">
     <label class="optional">User Data (YAML format) <span class="hint-icon" data-tooltip="Cloud-init user-data YAML configuration; supports timezone, disable_root, package_upgrade, runcmd, users, etc.">?</span></label>
     <textarea id="userDataRaw" rows="10" placeholder="Example:&#10;timezone: Asia/Shanghai&#10;disable_root: false&#10;package_upgrade: true&#10;runcmd:&#10;  - /opt/runcmd-first-boot.sh&#10;  - echo 'System configured successfully'&#10;users:&#10;  - name: ubuntu&#10;    gecos: 'Ubuntu User'&#10;    groups: adm, cdrom, dip, lxd, plugdev, sudo&#10;    shell: /bin/bash"></textarea>
-  </div>
+</div>

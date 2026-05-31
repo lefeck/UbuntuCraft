@@ -78,10 +78,28 @@ func (s *Server) Routes() {
 	api.POST("/iso/upload", s.handler.UploadISO)
 	api.POST("/iso/generate", s.handler.GenerateISO)
 
+	// Embedded file endpoints
+	api.POST("/embedded/write", s.handler.WriteEmbeddedFile)
+	api.DELETE("/embedded/delete", s.handler.DeleteEmbeddedFile)
+	api.GET("/embedded/list", s.handler.ListEmbeddedFiles)
+	api.GET("/embedded/read", s.handler.ReadEmbeddedFile)
+	api.GET("/embedded/dir", s.handler.ListDirectory)
+	api.POST("/embedded/mkdir", s.handler.MkdirEmbedded)
+
 	// Build status endpoints
 	api.GET("/build/status/:id", s.handler.GetBuildStatus)
 	api.GET("/build/logs/:id", s.handler.GetBuildLogs)
 	api.GET("/build/download/:id", s.handler.DownloadISO)
+	api.POST("/build/reset", s.handler.ResetBuildConfig)
+
+	// Template endpoints
+	api.GET("/templates", s.handler.ListTemplates)
+	api.GET("/templates/:name", s.handler.GetTemplate)
+	api.POST("/templates/save", s.handler.SaveUserTemplate)
+	api.POST("/templates/save-yaml", s.handler.SaveUserTemplateYAML)
+	api.POST("/templates/parse", s.handler.ParseYAML)
+	api.DELETE("/templates/:name", s.handler.DeleteUserTemplate)
+	api.POST("/templates/import", s.handler.ImportTemplate)
 }
 
 // Run starts the HTTP server.

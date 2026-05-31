@@ -1,7 +1,7 @@
 .PHONY: all help deps fmt lint test clean run build build-all checksum package
 
 # Project settings
-BINARY_NAME ?= ubuntu-autoinstaller
+BINARY_NAME ?= ubuntu-craft
 MAIN_FILE   ?= main.go
 OUT_DIR     ?= dist
 GO          ?= go
@@ -112,7 +112,7 @@ clean:
 # Docker settings
 # 镜像命名规范：<username>/<repo>:<app-version>[-<release-tag>]-ubuntu<base-version>
 REGISTRY_USER ?= jetfuls
-REPO_NAME     ?= ubuntu-autoinstaller
+REPO_NAME     ?= ubuntu-craft
 APP_VERSION   ?= 1.0
 UBUNTU_VERSION?= 22.04
 RELEASE_TAG   ?=
@@ -134,7 +134,7 @@ docker-build:
 # Run container (maps 8080 to host)
 docker-run:
 	@echo "Running $(DOCKER_IMAGE) on http://localhost:8080"
-	@docker run --rm -p 8080:8080 --name ubuntu-autoinstaller $(DOCKER_IMAGE)
+	@docker run --rm -p 8080:8080 --name ubuntu-craft $(DOCKER_IMAGE)
 
 # Push image to registry (ensure DOCKER_IMAGE has a registry/repo)
 docker-push:

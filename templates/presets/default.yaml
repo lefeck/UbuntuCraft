@@ -1,0 +1,143 @@
+#cloud-config
+autoinstall:
+    apt:
+        disable_components: []
+        disable_suites:
+            - security
+        geoip: false
+        preserve_sources_list: false
+        primary:
+            - arches:
+                - amd64
+                - i386
+              uri: http://archive.ubuntu.com/ubuntu
+            - arches:
+                - default
+              uri: http://ports.ubuntu.com/ubuntu-ports
+    drivers:
+        install: false
+    identity:
+        hostname: ubuntu-server
+        # default password: 123456
+        password: $6$FnHPy.4giHfDcI8r$vllY94AceZFt20M6WzxXKfOLuycO7o8QD8RJJwVs/DSGcHNNF4ilbGrukXPMA3irAdiimHo0fl2zUdkbRO9vh1
+        realname: ubuntu
+        username: ubuntu
+    kernel:
+        package: linux-generic
+    keyboard:
+        layout: us
+        toggle: ""
+        variant: ""
+    locale: en_US.UTF-8
+    network:
+        renderer: networkd
+        version: 2
+        ethernets:
+            eth0:
+                match:
+                    name: eth0
+                addresses:
+                    - 192.168.10.123/24
+                nameservers:
+                    addresses:
+                        - 114.114.114.114
+                        - 8.8.8.8
+                routes:
+                    - to: default
+                      via: 192.168.10.1
+    ssh:
+        allow-pw: true
+        authorized-keys: []
+        install-server: true
+    storage:
+        config:
+            - type: disk
+              id: disk0
+              grub_device: true
+              ptable: gpt
+              match:
+                size: largest
+              preserve: false
+              wipe: superblock-recursive
+            - type: partition
+              id: bios-grub-part
+              device: disk0
+              number: 1
+              size: 1073741824
+              flag: bios_grub
+              preserve: false
+              wipe: superblock
+            - type: partition
+              id: boot-part
+              device: disk0
+              number: 2
+              size: 1073741824
+              preserve: false
+              wipe: superblock
+            - type: format
+              id: boot-fs
+              preserve: false
+              volume: boot-part
+              fstype: ext4
+            - type: partition
+              id: pv-part
+              device: disk0
+              number: 3
+              size: -1
+              preserve: false
+              wipe: superblock
+            - type: lvm_volgroup
+              id: vg0
+              name: ubuntu-vg
+              preserve: false
+              devices:
+                - pv-part
+            - type: lvm_partition
+              id: lv-swap
+              size: 1073741824
+              name: ubuntu-swap
+              preserve: false
+              volgroup: vg0
+            - type: format
+              id: fs-swap
+              preserve: false
+              volume: lv-swap
+              fstype: swap
+            - type: lvm_partition
+              id: lv-root
+              size: -1
+              name: ubuntu-lv
+              preserve: false
+              volgroup: vg0
+            - type: format
+              id: fs-root
+              preserve: false
+              volume: lv-root
+              fstype: ext4
+            - type: mount
+              id: mount-root
+              device: fs-root
+              preserve: false
+              path: /
+            - type: mount
+              id: mount-boot
+              device: boot-fs
+              preserve: false
+              path: /boot
+            - type: mount
+              id: mount-swap
+              device: fs-swap
+              preserve: false
+              path: none
+        swap:
+            size: 1G
+        grub:
+            reorder_uefi: false
+    updates: security
+    shutdown: reboot
+    version: 1
+    packages: []
+    early-commands: []
+    late-commands: []
+    user-data: {}
+    timezone: Asia/Shanghai

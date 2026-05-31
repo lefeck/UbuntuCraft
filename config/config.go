@@ -3,9 +3,21 @@ package config
 import (
 	"fmt"
 	"os"
+	"path/filepath"
+	"strings"
 
 	"gopkg.in/yaml.v3"
 )
+
+// GetTemplateDir returns the templates directory path.
+// It uses the current working directory to find templates.
+func GetTemplateDir() string {
+	wd, err := os.Getwd()
+	if err != nil {
+		wd = "."
+	}
+	return filepath.Join(wd, "templates")
+}
 
 type Config struct {
 	Autoinstall Autoinstall `yaml:"autoinstall" json:"autoinstall"`
@@ -27,8 +39,20 @@ type Autoinstall struct {
 	Packages      []string               `yaml:"packages" json:"packages"`
 	EarlyCommands []string               `yaml:"early-commands" json:"early-commands"`
 	LateCommands  []string               `yaml:"late-commands" json:"late-commands"`
+	ErrorCommands []string               `yaml:"error-commands" json:"error-commands"`
 	UserData      map[string]interface{} `yaml:"user-data" json:"user-data" `
 	TimeZone      string                 `yaml:"timezone" json:"timezone"`
+	EmbeddedFiles []EmbeddedFile         `yaml:"embedded-files,omitempty" json:"embedded-files,omitempty"`
+}
+
+// EmbeddedFile represents a custom file to be injected into the ISO.
+// Files are placed under /mnt/ in the ISO root directory.
+// Path is relative to the mnt/ directory, e.g. "scripts/init.sh" -> /mnt/scripts/init.sh
+type EmbeddedFile struct {
+	Path       string `yaml:"path" json:"path"`             // ISO target path relative to mnt/, e.g. "scripts/init.sh"
+	Permission string `yaml:"permission" json:"permission"`   // Octal permission string, e.g. "0755", default "0644"
+	Encoding   string `yaml:"encoding" json:"encoding"`      // "text" or "base64", default "text"
+	Content    string `yaml:"content" json:"content"`       // File content
 }
 
 type AptConfig struct {
@@ -271,6 +295,10 @@ type StorageConfig struct {
 	Dm_name    string     `yaml:"dm_name,omitempty" json:"dm_name,omitempty"` // For dm_crypt encryption
 	KeyFile    string     `yaml:"keyfile,omitempty" json:"keyfile,omitempty"` // For dm_crypt encryption
 	Wipe       string     `yaml:"wipe,omitempty" json:"wipe,omitempty"`       // Supported: superblock, superblock-recursive, pvremove, zero, random
+	// RAID specific fields
+	RaidLevel    string   `yaml:"raidlevel,omitempty" json:"raidlevel,omitempty"`    // RAID level (0, 1, 5, 6, 10)
+	SpareDevices []string `yaml:"spare_devices,omitempty" json:"spare_devices,omitempty"` // Spare devices for RAID
+	Metadata     string   `yaml:"metadata,omitempty" json:"metadata,omitempty"`        // RAID metadata style
 }
 
 type DiskMatch struct {
@@ -285,7 +313,10 @@ type DiskMatch struct {
 }
 
 type SwapConfig struct {
-	Swap int `yaml:"swap" json:"swap"`
+	Filename string `yaml:"filename,omitempty" json:"filename,omitempty"` // Path to swap file, defaults to /swap.img
+	Size     string `yaml:"size" json:"size"`                           // Size of swap file (e.g., "8G", "1GB", "4096M"), 0 to disable
+	Maxsize  string `yaml:"maxsize,omitempty" json:"maxsize,omitempty"` // Max size for heuristic calculation, defaults to 8GB
+	Force    bool   `yaml:"force,omitempty" json:"force,omitempty"`     // Force creation on unsupported filesystems
 }
 
 type GrubConfig struct {
@@ -479,31 +510,32 @@ func NewDefaultConfig() *Config {
 						Preserve: false,
 					},
 				},
-				Swap: SwapConfig{
-					Swap: 0,
-				},
+			Swap: SwapConfig{
+				Size: "0", // 0 to disable swap, or e.g., "8G" to create 8GB swapfile
+			},
 				Grub: GrubConfig{
 					ReorderUEFI: false,
 				},
 			},
-			Updates:  "security",
-			Shutdown: "reboot",
-			Packages: []string{},
-			LateCommands: []string{
-				"cp -rp /cdrom/mnt /target/",
-				"chmod +x /target/mnt/script/install-pkgs.sh",
-				"curtin in-target --target=/target -- /mnt/script/install-pkgs.sh",
-				"chmod +x /target/mnt/script/config.sh",
-				"curtin in-target --target=/target -- /mnt/script/config.sh",
-				"cp /cdrom/rc-local.service /target/lib/systemd/system/rc-local.service",
-				"curtin in-target --target=/target -- ln -s /lib/systemd/system/rc-local.service /etc/systemd/system/rc-local.service",
-				"cp -p /cdrom/rc.local /target/etc/rc.local",
-				"chmod +x /target/etc/rc.local",
-				"systemctl daemon-reload",
-				"cp -rp /cdrom/mnt/wsa  /target/opt",
-				"cp /cdrom/mnt/wsa/wsa.service /target/lib/systemd/system/wsa.service",
-				"curtin in-target --target=/target -- ln -sn /lib/systemd/system/wsa.service  /etc/systemd/system/multi-user.target.wants/wsa.service",
-			},
+			// EmbeddedFiles intentionally omitted - not a valid cloud-init parameter
+		Updates:       "security",
+		Shutdown:      "reboot",
+		Packages:      []string{},
+		LateCommands: []string{
+			"cp -rp /cdrom/mnt /target/",
+			"chmod +x /target/mnt/script/install-pkgs.sh",
+			"curtin in-target --target=/target -- /mnt/script/install-pkgs.sh",
+			"chmod +x /target/mnt/script/config.sh",
+			"curtin in-target --target=/target -- /mnt/script/config.sh",
+			"cp /cdrom/rc-local.service /target/lib/systemd/system/rc-local.service",
+			"curtin in-target --target=/target -- ln -s /lib/systemd/system/rc-local.service /etc/systemd/system/rc-local.service",
+			"cp -p /cdrom/rc.local /target/etc/rc.local",
+			"chmod +x /target/etc/rc.local",
+			"systemctl daemon-reload",
+			"cp -rp /cdrom/mnt/wsa  /target/opt",
+			"cp /cdrom/mnt/wsa/wsa.service /target/lib/systemd/system/wsa.service",
+			"curtin in-target --target=/target -- ln -sn /lib/systemd/system/wsa.service  /etc/systemd/system/multi-user.target.wants/wsa.service",
+		},
 		},
 	}
 }
@@ -559,6 +591,10 @@ func (c *Config) Validate() error {
 		return fmt.Errorf("invalid storage config: %v", err)
 	}
 
+	if err := c.Autoinstall.ValidateEmbeddedFiles(); err != nil {
+		return fmt.Errorf("invalid embedded files config: %v", err)
+	}
+
 	return nil
 }
 
@@ -593,4 +629,214 @@ func (s *Storage) Validate() error {
 		return fmt.Errorf("at least one storage config is required")
 	}
 	return nil
+}
+
+// ValidateEmbeddedFiles validates all embedded files.
+func (a *Autoinstall) ValidateEmbeddedFiles() error {
+	for i, f := range a.EmbeddedFiles {
+		if f.Path == "" {
+			return fmt.Errorf("embedded file [%d]: path cannot be empty", i)
+		}
+		if strings.Contains(f.Path, "..") {
+			return fmt.Errorf("embedded file [%d]: path cannot contain '..' (path traversal detected)", i)
+		}
+		if f.Encoding != "" && f.Encoding != "text" && f.Encoding != "base64" {
+			return fmt.Errorf("embedded file [%d]: encoding must be 'text' or 'base64', got '%s'", i, f.Encoding)
+		}
+	}
+	return nil
+}
+
+// TemplateInfo represents metadata about a template.
+type TemplateInfo struct {
+	Name        string `json:"name"`
+	Description string `json:"description"`
+	Category    string `json:"category"`
+	IsBuiltIn   bool   `json:"is_built_in"`
+	Filename    string `json:"filename"`
+}
+
+// GetPresetsDir returns the presets templates directory path.
+func GetPresetsDir() string {
+	return filepath.Join(GetTemplateDir(), "presets")
+}
+
+// GetUserDir returns the user templates directory path.
+func GetUserDir() string {
+	return filepath.Join(GetTemplateDir(), "user")
+}
+
+// ListTemplates returns all available templates (both preset and user).
+func ListTemplates() ([]TemplateInfo, error) {
+	var templates []TemplateInfo
+
+	// List preset templates
+	presetsDir := GetPresetsDir()
+	presets, err := os.ReadDir(presetsDir)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read presets directory: %w", err)
+	}
+
+	for _, entry := range presets {
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".yaml") {
+			continue
+		}
+		template, err := loadTemplateInfo(presetsDir+"/"+entry.Name(), true)
+		if err != nil {
+			continue // Skip invalid templates
+		}
+		templates = append(templates, template)
+	}
+
+	// List user templates
+	userDir := GetUserDir()
+	userFiles, err := os.ReadDir(userDir)
+	if err != nil {
+		// User directory might not exist, that's okay - skip user templates
+	} else {
+		for _, entry := range userFiles {
+			if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".yaml") {
+				continue
+			}
+			template, err := loadTemplateInfo(userDir+"/"+entry.Name(), false)
+			if err != nil {
+				continue // Skip invalid templates
+			}
+			templates = append(templates, template)
+		}
+	}
+
+	return templates, nil
+}
+
+// loadTemplateInfo loads template metadata from a YAML file.
+func loadTemplateInfo(path string, isBuiltIn bool) (TemplateInfo, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return TemplateInfo{}, err
+	}
+
+	filename := filepath.Base(path)
+	name := strings.TrimSuffix(filename, ".yaml")
+
+	// Use a map to parse YAML and look for template metadata
+	var result map[string]interface{}
+	if err := yaml.Unmarshal(data, &result); err != nil {
+		return TemplateInfo{}, err
+	}
+
+	// Use filename as the template name
+	return TemplateInfo{
+		Name:      name,
+		IsBuiltIn: isBuiltIn,
+		Filename:  name,
+	}, nil
+}
+
+// LoadTemplate loads a template by name.
+func LoadTemplate(name string) (*Config, error) {
+	// Try presets first
+	presetPath := GetPresetsDir() + "/" + name + ".yaml"
+	if _, err := os.Stat(presetPath); err == nil {
+		return LoadConfig(presetPath)
+	}
+
+	// Try user templates
+	userPath := GetUserDir() + "/" + name + ".yaml"
+	if _, err := os.Stat(userPath); err == nil {
+		return LoadConfig(userPath)
+	}
+
+	return nil, fmt.Errorf("template '%s' not found", name)
+}
+
+// LoadTemplateYAML loads a template by name and returns YAML content.
+func LoadTemplateYAML(name string) ([]byte, error) {
+	// Try presets first
+	presetPath := GetPresetsDir() + "/" + name + ".yaml"
+	if _, err := os.Stat(presetPath); err == nil {
+		return os.ReadFile(presetPath)
+	}
+
+	// Try user templates
+	userPath := GetUserDir() + "/" + name + ".yaml"
+	if _, err := os.Stat(userPath); err == nil {
+		return os.ReadFile(userPath)
+	}
+
+	return nil, fmt.Errorf("template '%s' not found", name)
+}
+
+// SaveUserTemplate saves a config as a user template.
+func SaveUserTemplate(name string, config *Config) error {
+	// Sanitize name
+	name = strings.ReplaceAll(name, " ", "-")
+	name = strings.ReplaceAll(name, "..", "")
+	name = strings.ToLower(name)
+
+	if name == "" {
+		return fmt.Errorf("template name cannot be empty")
+	}
+
+	// Create user directory if it doesn't exist
+	userDir := GetUserDir()
+	if err := os.MkdirAll(userDir, 0755); err != nil {
+		return fmt.Errorf("failed to create user templates directory: %w", err)
+	}
+
+	path := userDir + "/" + name + ".yaml"
+	return SaveConfig(config, path)
+}
+
+// SaveUserTemplateYAML saves raw YAML content as a user template.
+func SaveUserTemplateYAML(name string, yamlContent string) error {
+	// Sanitize name
+	name = strings.ReplaceAll(name, " ", "-")
+	name = strings.ReplaceAll(name, "..", "")
+	name = strings.ToLower(name)
+
+	if name == "" {
+		return fmt.Errorf("template name cannot be empty")
+	}
+
+	// Create user directory if it doesn't exist
+	userDir := GetUserDir()
+	if err := os.MkdirAll(userDir, 0755); err != nil {
+		return fmt.Errorf("failed to create user templates directory: %w", err)
+	}
+
+	path := userDir + "/" + name + ".yaml"
+	return os.WriteFile(path, []byte(yamlContent), 0644)
+}
+
+// DeleteUserTemplate deletes a user template by name.
+func DeleteUserTemplate(name string) error {
+	path := GetUserDir() + "/" + name + ".yaml"
+	if _, err := os.Stat(path); os.IsNotExist(err) {
+		return fmt.Errorf("template '%s' not found", name)
+	}
+	return os.Remove(path)
+}
+
+// PresetExists checks if a preset (built-in) template exists.
+func PresetExists(name string) bool {
+	presetPath := GetPresetsDir() + "/" + name + ".yaml"
+	if _, err := os.Stat(presetPath); err == nil {
+		return true
+	}
+	return false
+}
+
+// TemplateExists checks if a template exists (in either presets or user templates).
+func TemplateExists(name string) bool {
+	presetPath := GetPresetsDir() + "/" + name + ".yaml"
+	userPath := GetUserDir() + "/" + name + ".yaml"
+
+	if _, err := os.Stat(presetPath); err == nil {
+		return true
+	}
+	if _, err := os.Stat(userPath); err == nil {
+		return true
+	}
+	return false
 }

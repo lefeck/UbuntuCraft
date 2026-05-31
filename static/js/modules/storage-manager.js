@@ -24,7 +24,7 @@ function initStorageConfigs() {
     addStorageConfig('partition', 'boot-part', false, '', 'superblock', '', 2, 1, 'G', '', '', '', '', 'disk0');
     addStorageConfig('format', 'boot-fs', false, '', '', '', 0, 0, '', '', '', '', '', 'boot-part');
     addStorageConfig('partition', 'pv-part', false, '', 'superblock', '', 3, -1, '', '', '', '', '', 'disk0');
-    addStorageConfig('dm_crypt', 'dm_crypt-0', false, '', 'superblock', '', 0, 0, '', '', 'crypto', '', '', 'pv-part');
+    addStorageConfig('dm_crypt', 'dm_crypt-0', false, '', 'superblock', '', 0, 0, '', '', '', 'crypto', '', '', '', 'pv-part', '', '');
 	addStorageConfig('lvm_volgroup', 'vg0', false, '', '', '', 0, 0, '', '', 'ubuntu-vg', '', '', 'dm_crypt-0');
     addStorageConfig('lvm_partition', 'lv-swap', false, '', 'superblock', '', 0, 1, 'G', 'swap', 'ubuntu-swap', 'vg0', '', '');
     addStorageConfig('format', 'fs-swap', false, '', '', '', 0, 0, '', '', '', '', '', 'lv-swap');
@@ -39,8 +39,8 @@ function initStorageConfigs() {
 /**
  * Add storage configuration - restored
  */
-function addStorageConfig(type = 'disk', id = '', grubDevice = false, ptable = '', wipe = '', match = '', number = 0, size = 0, unit = '', flag = '', name = '', volgroup = '', path = '', device = '') {
-    console.log('addStorageConfig called with:', { type, id, grubDevice, ptable, wipe, match, number, size, unit, flag, name, volgroup, path, device });
+function addStorageConfig(type = 'disk', id = '', grubDevice = false, ptable = '', wipe = '', match = '', matchValue = '', number = 0, size = 0, unit = '', flag = '', name = '', volgroup = '', path = '', device = '', volume = '', encryptionKey = '', keyfile = '', fstype = 'ext4', raidlevel = 'raid1', devices = [], metadata = 'default') {
+    console.log('addStorageConfig called with:', { type, id, grubDevice, ptable, wipe, match, matchValue, number, size, unit, flag, name, volgroup, path, device, volume, encryptionKey, keyfile, fstype, raidlevel, devices, metadata });
     
     const container = document.getElementById('storageConfigs');
     if (!container) {
@@ -95,6 +95,7 @@ function addStorageConfig(type = 'disk', id = '', grubDevice = false, ptable = '
                     <option value="mount" ${type === 'mount' ? 'selected' : ''}>Mount</option>
                     <option value="lvm_volgroup" ${type === 'lvm_volgroup' ? 'selected' : ''}>LVM Volume Group</option>
                     <option value="lvm_partition" ${type === 'lvm_partition' ? 'selected' : ''}>LVM Partition</option>
+                    <option value="raid" ${type === 'raid' ? 'selected' : ''}>RAID</option>
                     <option value="device" ${type === 'device' ? 'selected' : ''}>Device</option>
                     <option value="dm_crypt" ${type === 'dm_crypt' ? 'selected' : ''}>DM Crypt</option>
                 </select>
@@ -106,7 +107,7 @@ function addStorageConfig(type = 'disk', id = '', grubDevice = false, ptable = '
         </div>`;
     
     // Type-specific fields
-    let typeSpecificFields = getStorageTypeSpecificFields(type, ptable, wipe, match, number, displaySize, displayUnit, flag, name, volgroup, path, device, grubDevice);
+    let typeSpecificFields = getStorageTypeSpecificFields(type, ptable, wipe, match, matchValue, number, displaySize, displayUnit, flag, name, volgroup, path, device, volume, grubDevice, encryptionKey, keyfile, fstype, raidlevel, devices, metadata);
     
     configDiv.innerHTML = `
         <div class="storage-header" onclick="this.nextElementSibling.classList.toggle('collapsed')">
@@ -132,7 +133,7 @@ function addStorageConfig(type = 'disk', id = '', grubDevice = false, ptable = '
             }
         }
 
-        const requiredInputs = configDiv.querySelectorAll('input[required], select[required], .storage-ptable-input, .storage-grub-input, .disk-match-value');
+        const requiredInputs = configDiv.querySelectorAll('input[required], select[required], .storage-ptable-input, .storage-grub-input');
         requiredInputs.forEach(function(el){
             el.addEventListener('input', function(){ this.classList.remove('input-error'); });
             el.addEventListener('blur', function(){
@@ -152,7 +153,7 @@ function addStorageConfig(type = 'disk', id = '', grubDevice = false, ptable = '
  * Get storage type-specific configuration fields
  * Distinguish required and optional fields according to documentation
  */
-function getStorageTypeSpecificFields(type, ptable, wipe, match, number, displaySize, displayUnit, flag, name, volgroup, path, device, grubDevice) {
+function getStorageTypeSpecificFields(type, ptable, wipe, match, matchValue, number, displaySize, displayUnit, flag, name, volgroup, path, device, volume, grubDevice, encryptionKey, keyfile, fstype, raidlevel, devices, metadata) {
     let specificFields = '';
     
     switch (type) {
@@ -202,22 +203,26 @@ function getStorageTypeSpecificFields(type, ptable, wipe, match, number, display
                         <label class="optional">Name <span class="hint-icon" data-tooltip="Friendly disk name (e.g. sda, nvme0n1)">?</span></label>
                         <input type="text" class="storage-name-input" value="${name}">
                     </div>
+                    <div class="form-group">
+                        <label class="optional">Path <span class="hint-icon" data-tooltip="Device path (e.g. /dev/sda). If set, match conditions are ignored">?</span></label>
+                        <input type="text" class="storage-path-input" value="${path}" placeholder="e.g., /dev/sda">
+                    </div>
                 </div>
                 <div class="form-row">
                     <div class="form-group" style="width:100%">
-                        <label>Match Condition <span class="hint-icon" data-tooltip="Disk matching criteria">?</span></label>
+                        <label class="optional">Match Condition <span class="hint-icon" data-tooltip="Disk matching criteria (ignored if Path is set)">?</span></label>
                         <div class="disk-match-container">
                             <div class="disk-match-row">
-                                <select class="disk-match-type" onchange="window.StorageManager.updateDiskMatchPlaceholder(this)" required>
-                                    <option value="size" selected>Size</option>
-                                    <option value="model">Model</option>
-                                    <option value="serial">Serial</option>
-                                    <option value="path">Path</option>
-                                    <option value="wwn">WWN</option>
-                                    <option value="firmware_version">Firmware Version</option>
-                                    <option value="ssd">SSD</option>
+                                <select class="disk-match-type" onchange="window.StorageManager.updateDiskMatchPlaceholder(this)">
+                                    <option value="size" ${match === 'size' ? 'selected' : ''}>Size</option>
+                                    <option value="model" ${match === 'model' ? 'selected' : ''}>Model</option>
+                                    <option value="serial" ${match === 'serial' ? 'selected' : ''}>Serial</option>
+                                    <option value="path" ${match === 'path' ? 'selected' : ''}>Path</option>
+                                    <option value="wwn" ${match === 'wwn' ? 'selected' : ''}>WWN</option>
+                                    <option value="firmware_version" ${match === 'firmware_version' ? 'selected' : ''}>Firmware Version</option>
+                                    <option value="ssd" ${match === 'ssd' ? 'selected' : ''}>SSD</option>
                                 </select>
-                                <input type="text" class="disk-match-value" value="${match}" placeholder="e.g., largest, smallest, 100G" required>
+                                <input type="text" class="disk-match-value" value="${matchValue}" placeholder="e.g., largest, smallest, 100G">
                                 <button type="button" class="remove-disk-match-btn" onclick="window.StorageManager.removeDiskMatchRow(this)">Remove</button>
                             </div>
                         </div>
@@ -268,6 +273,15 @@ function getStorageTypeSpecificFields(type, ptable, wipe, match, number, display
                         </select>
                     </div>
                     <div class="form-group">
+                        <label>GRUB Device <span class="hint-icon" data-tooltip="Whether this partition should be the GRUB boot partition">?</span></label>
+                        <select class="storage-grub-device-input">
+                            <option value="false" ${grubDevice === false || grubDevice === 'false' ? 'selected' : ''}>false</option>
+                            <option value="true" ${grubDevice === true || grubDevice === 'true' ? 'selected' : ''}>true</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="form-row">
+                    <div class="form-group">
                         <label class="optional">Wipe Method <span class="hint-icon" data-tooltip="Cleanup operation method (default superblock)">?</span></label>
                         <select class="storage-wipe-input">
                             <option value="superblock" ${wipe === 'superblock' ? 'selected' : ''}>superblock</option>
@@ -285,17 +299,19 @@ function getStorageTypeSpecificFields(type, ptable, wipe, match, number, display
                 <div class="form-row">
                     <div class="form-group">
                         <label>Volume <span class="hint-icon" data-tooltip="Volume to format (e.g. lv-root)">?</span></label>
-                        <input type="text" class="storage-volume-input" value="${device}" required>
+                        <input type="text" class="storage-volume-input" value="${volume}" required>
                     </div>
                     <div class="form-group">
                         <label>File System Type <span class="hint-icon" data-tooltip="Filesystem to create (default ext4)">?</span></label>
                         <select class="storage-fstype-input" required>
-                            <option value="ext4" selected>ext4</option>
-                            <option value="xfs">xfs</option>
-                            <option value="btrfs">btrfs</option>
-                            <option value="ntfs">ntfs</option>
-                            <option value="swap">swap</option>
-                            <option value="vfat">vfat</option>
+                            <option value="ext4" ${fstype === 'ext4' ? 'selected' : ''}>ext4</option>
+                            <option value="ext3" ${fstype === 'ext3' ? 'selected' : ''}>ext3</option>
+                            <option value="xfs" ${fstype === 'xfs' ? 'selected' : ''}>xfs</option>
+                            <option value="f2fs" ${fstype === 'f2fs' ? 'selected' : ''}>f2fs</option>
+                            <option value="fat32" ${fstype === 'fat32' ? 'selected' : ''}>fat32</option>
+                            <option value="fat16" ${fstype === 'fat16' ? 'selected' : ''}>fat16</option>
+                            <option value="swap" ${fstype === 'swap' ? 'selected' : ''}>swap</option>
+                            <option value="zfsroot" ${fstype === 'zfsroot' ? 'selected' : ''}>zfsroot</option>
                         </select>
                     </div>
                 </div>
@@ -341,6 +357,7 @@ function getStorageTypeSpecificFields(type, ptable, wipe, match, number, display
             break;
             
         case 'lvm_volgroup':
+            const lvmDevicesValue = (devices && devices.length) ? devices.join(', ') : (device || '');
             specificFields = `
                 <!-- Required Fields -->
                 <div class="form-row">
@@ -350,7 +367,7 @@ function getStorageTypeSpecificFields(type, ptable, wipe, match, number, display
                     </div>
                     <div class="form-group">
                         <label>Devices <span class="hint-icon" data-tooltip="Physical volumes list, comma separated (e.g. pv-part)">?</span></label>
-                        <input type="text" class="storage-devices-input" value="${device || 'dm_crypt-0'}" required>
+                        <input type="text" class="storage-devices-input" value="${lvmDevicesValue}" required>
                     </div>
                 </div>
                 <!-- Optional Fields -->
@@ -360,6 +377,15 @@ function getStorageTypeSpecificFields(type, ptable, wipe, match, number, display
                         <select class="storage-preserve-input">
                             <option value="false" selected>false</option>
                             <option value="true">true</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label class="optional">Wipe Method <span class="hint-icon" data-tooltip="Cleanup operation method">?</span></label>
+                        <select class="storage-wipe-input">
+                            <option value="superblock" selected>superblock</option>
+                            <option value="pvremove">pvremove</option>
+                            <option value="zero">zero</option>
+                            <option value="random">random</option>
                         </select>
                     </div>
                 </div>`;
@@ -409,7 +435,7 @@ function getStorageTypeSpecificFields(type, ptable, wipe, match, number, display
                 <div class="form-row">
                     <div class="form-group">
                         <label>Volume <span class="hint-icon" data-tooltip="The volume key gives the volume that is to be encrypted (e.g. pv-part)">?</span></label>
-                        <input type="text" class="storage-volume-input" value="${device || 'pv-part'}" required>
+                        <input type="text" class="storage-volume-input" value="${volume || device || 'pv-part'}" required>
                     </div>
                     <div class="form-group">
                         <label>DM Name <span class="hint-icon" data-tooltip="Device mapper name (e.g. crypto)">?</span></label>
@@ -419,12 +445,12 @@ function getStorageTypeSpecificFields(type, ptable, wipe, match, number, display
                 <!-- Key Configuration (Key and Key File are mutually exclusive) -->
                 <div class="form-row">
                     <div class="form-group">
-                        <label class="optional">Key <span class="hint-icon" data-tooltip="Encryption key (default: secret, cannot be set together with Key File)">?</span></label>
-                        <input type="password" class="storage-key-input" value="secret" onchange="window.StorageManager.toggleKeyFields(this)">
+                        <label class="optional">Key <span class="hint-icon" data-tooltip="Encryption key (cannot be set together with Key File)">?</span></label>
+                        <input type="password" class="storage-key-input" value="${encryptionKey || ''}" placeholder="Enter key or leave empty" onchange="window.StorageManager.toggleKeyFields(this)">
                     </div>
                     <div class="form-group">
                         <label class="optional">Key File <span class="hint-icon" data-tooltip="Encryption key file path (e.g. /etc/keys/crypto.key, cannot be set together with Key)">?</span></label>
-                        <input type="text" class="storage-keyfile-input" onchange="window.StorageManager.toggleKeyFields(this)">
+                        <input type="text" class="storage-keyfile-input" value="${keyfile || ''}" placeholder="e.g. /tmp/luks.key" onchange="window.StorageManager.toggleKeyFields(this)">
                     </div>
                 </div>
                 <!-- Optional Fields -->
@@ -444,6 +470,65 @@ function getStorageTypeSpecificFields(type, ptable, wipe, match, number, display
                             <option value="zero">zero</option>
                             <option value="random">random</option>
                         </select>
+                    </div>
+                </div>`;
+            break;
+
+        case 'raid':
+            specificFields = `
+                <!-- Required Fields -->
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>RAID Name <span class="hint-icon" data-tooltip="Name of the md device (e.g. md0)">?</span></label>
+                        <input type="text" class="storage-raid-name-input" value="${name || ''}" placeholder="e.g. md0" required>
+                    </div>
+                    <div class="form-group">
+                        <label>RAID Level <span class="hint-icon" data-tooltip="RAID level (raid0, raid1, raid5, raid6, raid10)">?</span></label>
+                        <select class="storage-raidlevel-input" required>
+                            <option value="raid0" ${raidlevel === 'raid0' ? 'selected' : ''}>RAID 0 (Striping)</option>
+                            <option value="raid1" ${raidlevel === 'raid1' ? 'selected' : ''}>RAID 1 (Mirroring)</option>
+                            <option value="raid5" ${raidlevel === 'raid5' ? 'selected' : ''}>RAID 5 (Parity)</option>
+                            <option value="raid6" ${raidlevel === 'raid6' ? 'selected' : ''}>RAID 6 (Dual Parity)</option>
+                            <option value="raid10" ${raidlevel === 'raid10' ? 'selected' : ''}>RAID 10 (Striped Mirrors)</option>
+                        </select>
+                    </div>
+                </div>
+                <!-- Optional Fields -->
+                <div class="form-row">
+                    <div class="form-group">
+                        <label class="optional">Metadata <span class="hint-icon" data-tooltip="RAID metadata/superblock style">?</span></label>
+                        <select class="storage-raid-metadata-input">
+                            <option value="default" ${metadata === 'default' ? 'selected' : ''}>default</option>
+                            <option value="1.2" ${metadata === '1.2' ? 'selected' : ''}>1.2</option>
+                            <option value="1.1" ${metadata === '1.1' ? 'selected' : ''}>1.1</option>
+                            <option value="0.90" ${metadata === '0.90' ? 'selected' : ''}>0.90</option>
+                            <option value="ddf" ${metadata === 'ddf' ? 'selected' : ''}>ddf</option>
+                            <option value="imsm" ${metadata === 'imsm' ? 'selected' : ''}>imsm</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label class="optional">Preserve <span class="hint-icon" data-tooltip="Keep existing RAID device (default false)">?</span></label>
+                        <select class="storage-preserve-input">
+                            <option value="false" selected>false</option>
+                            <option value="true">true</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label class="optional">Wipe Method <span class="hint-icon" data-tooltip="Cleanup operation method">?</span></label>
+                        <select class="storage-wipe-input">
+                            <option value="superblock" selected>superblock</option>
+                            <option value="superblock-recursive">superblock-recursive</option>
+                            <option value="pvremove">pvremove</option>
+                            <option value="zero">zero</option>
+                            <option value="random">random</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="form-row">
+                    <div class="form-group" style="width:100%">
+                        <label>Devices <span class="hint-icon" data-tooltip="List of devices for RAID array (e.g. partition-1, partition-2)">?</span></label>
+                        <textarea class="storage-devices-input" rows="2" placeholder="Enter device IDs, one per line">${devices ? devices.join('\n') : ''}</textarea>
+                        <small class="hint">Enter one device ID per line (e.g. partition-1)</small>
                     </div>
                 </div>`;
             break;
@@ -657,7 +742,6 @@ function validateStorageConfig(statusId = 'configStatus') {
 
         if (type === 'disk') {
             markError('.storage-ptable-input', `Disk ${idx + 1}: Partition table is required`);
-            markError('.disk-match-value', `Disk ${idx + 1}: Match condition is required`);
             markError('.storage-grub-input', `Disk ${idx + 1}: GRUB device is required`);
         }
         if (type === 'partition') {
@@ -717,12 +801,23 @@ function validateStorageConfig(statusId = 'configStatus') {
     });
 
     if (errors.length > 0) {
-        // Scroll to first error
-        const firstError = document.querySelector('#storageConfigs .input-error');
-        if (firstError && firstError.scrollIntoView) {
-            firstError.scrollIntoView({ behavior: 'smooth', block: 'center' });
-            try { firstError.focus(); } catch (_) {}
+        // Switch to Storage tab first
+        if (typeof switchTab === 'function') {
+            switchTab('storage');
+        } else if (window.UIUtils && window.UIUtils.switchTab) {
+            window.UIUtils.switchTab('storage');
         }
+
+        // Small delay to allow tab switch animation
+        setTimeout(() => {
+            // Scroll to first error
+            const firstError = document.querySelector('#storageConfigs .input-error');
+            if (firstError && firstError.scrollIntoView) {
+                firstError.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                try { firstError.focus(); } catch (_) {}
+            }
+        }, 50);
+
         if (window.ConfigManager && window.ConfigManager.showStatus) {
             window.ConfigManager.showStatus(statusId, 'error', 'Storage validation failed: ' + errors.join(', '));
         }
@@ -734,9 +829,125 @@ function validateStorageConfig(statusId = 'configStatus') {
     };
 }
 
+/**
+ * Load storage config from parsed YAML and populate the form
+ */
+function loadFromConfig(storage) {
+    const container = document.getElementById('storageConfigs');
+    if (!container || !storage) return;
+    container.innerHTML = '';
+
+    // Swap configuration (new format: size as string like "8G", "0", etc.)
+    if (storage.swap) {
+        const swapFilenameEl = document.getElementById('swapFilename');
+        const swapSizeEl = document.getElementById('swapSize');
+        const swapSizeUnitEl = document.getElementById('swapSizeUnit');
+        const swapMaxsizeEl = document.getElementById('swapMaxsize');
+        const swapMaxsizeUnitEl = document.getElementById('swapMaxsizeUnit');
+        const swapForceEl = document.getElementById('swapForce');
+
+        // Filename
+        if (swapFilenameEl && storage.swap.filename) {
+            swapFilenameEl.value = storage.swap.filename;
+        }
+
+        // Parse size (e.g., "8G", "1GB", "4096M", "0")
+        if (storage.swap.size !== undefined) {
+            const sizeStr = String(storage.swap.size);
+            const sizeMatch = sizeStr.match(/^(\d+(?:\.\d+)?)\s*([KMGT])?$/i);
+            if (sizeMatch) {
+                const value = parseFloat(sizeMatch[1]);
+                const unit = sizeMatch[2] ? sizeMatch[2].toUpperCase() : '';
+                if (swapSizeEl) swapSizeEl.value = value;
+                if (swapSizeUnitEl && unit) swapSizeUnitEl.value = unit;
+            } else if (swapSizeEl) {
+                swapSizeEl.value = sizeStr;
+            }
+        }
+
+        // Parse maxsize (e.g., "8G")
+        if (storage.swap.maxsize !== undefined) {
+            const maxsizeStr = String(storage.swap.maxsize);
+            const maxsizeMatch = maxsizeStr.match(/^(\d+(?:\.\d+)?)\s*([KMGT])?$/i);
+            if (maxsizeMatch) {
+                const value = parseFloat(maxsizeMatch[1]);
+                const unit = maxsizeMatch[2] ? maxsizeMatch[2].toUpperCase() : '';
+                if (swapMaxsizeEl) swapMaxsizeEl.value = value;
+                if (swapMaxsizeUnitEl && unit) swapMaxsizeUnitEl.value = unit;
+            }
+        }
+
+        // Force
+        if (swapForceEl && storage.swap.force !== undefined) {
+            swapForceEl.value = storage.swap.force ? 'true' : 'false';
+        }
+    }
+
+    // GRUB reorder
+    if (storage.grub && storage.grub.reorder_uefi !== undefined) {
+        const grubEl = document.getElementById('grubReorder');
+        if (grubEl) grubEl.value = storage.grub.reorder_uefi ? 'true' : 'false';
+    }
+
+    // Storage config entries
+    if (storage.config && Array.isArray(storage.config)) {
+        storage.config.forEach(entry => {
+            let size = entry.size || 0;
+            let unit = 'B';
+            if (entry.size === -1) {
+                size = -1; unit = '';
+            } else if (entry.size >= 1099511627776) { size = Math.round(entry.size / 1099511627776 * 100) / 100; unit = 'T'; }
+            else if (entry.size >= 1073741824)     { size = Math.round(entry.size / 1073741824 * 100) / 100; unit = 'G'; }
+            else if (entry.size >= 1048576)        { size = Math.round(entry.size / 1048576 * 100) / 100; unit = 'M'; }
+            else if (entry.size >= 1024)           { size = Math.round(entry.size / 1024 * 100) / 100; unit = 'K'; }
+
+            // Parse match object to extract type and value
+            let matchType = 'size';
+            let matchValue = '';
+            if (entry.match) {
+                if (typeof entry.match === 'string') {
+                    matchValue = entry.match;
+                } else if (typeof entry.match === 'object') {
+                    const keys = Object.keys(entry.match);
+                    if (keys.length > 0) {
+                        matchType = keys[0];
+                        matchValue = entry.match[matchType];
+                    }
+                }
+            }
+
+            addStorageConfig(
+                entry.type || 'disk',
+                entry.id || '',
+                entry.grub_device || false,
+                entry.ptable || '',
+                entry.wipe || '',
+                matchType,
+                matchValue,
+                entry.number || 0,
+                size,
+                unit,
+                entry.flag || '',
+                entry.name || '',
+                entry.volgroup || '',
+                entry.path || '',
+                entry.device || '',
+                entry.volume || '',
+                entry.key || '',
+                entry.keyfile || '',
+                entry.fstype || 'ext4',
+                entry.raidlevel || 'raid1',
+                entry.devices || [],
+                entry.metadata || 'default'
+            );
+        });
+    }
+}
+
 // Export functions for use in other modules
 window.StorageManager = {
     initStorageConfigs,
+    loadFromConfig,
     addStorageConfig,
     updateStorageConfig,
     removeStorageConfig,

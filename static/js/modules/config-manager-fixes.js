@@ -522,8 +522,9 @@ function checkAdvancedConfigCollection() {
 
     window.collectAdvancedConfig = function() {
         const advancedConfig = {
-            packages: document.getElementById('packages')?.value?.split('\n').filter(p => p.trim()) || [],
+            packages: document.getElementById('autoinstallPackages')?.value?.split('\n').filter(p => p.trim()) || [],
             "late-commands": document.getElementById('lateCommands')?.value?.split('\n').filter(c => c.trim()) || [],
+            "error-commands": document.getElementById('errorCommands')?.value?.split('\n').filter(c => c.trim()) || [],
             "user-data": {
                 runcmd: document.getElementById('userDataCommands')?.value?.split('\n').filter(c => c.trim()) || []
             }

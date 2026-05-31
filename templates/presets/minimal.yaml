@@ -1,0 +1,77 @@
+# Minimal Configuration Template
+# Minimal Ubuntu Server with basic packages only
+
+autoinstall:
+  version: 1
+  apt:
+    disable_components: ["universe", "multiverse"]
+    disable_suites: []
+    geoip: true
+    preserve_sources_list: false
+    primary:
+      - arches: ["amd64", "i386"]
+        uri: "http://archive.ubuntu.com/ubuntu"
+  drivers:
+    install: false
+  identity:
+    hostname: "minimal-server"
+    # default password: 123456
+    password: "$6$FnHPy.4giHfDcI8r$vllY94AceZFt20M6WzxXKfOLuycO7o8QD8RJJwVs/DSGcHNNF4ilbGrukXPMA3irAdiimHo0fl2zUdkbRO9vh1"
+    realname: "ubuntu"
+    username: "ubuntu"
+  kernel:
+    package: "linux-image-generic"
+  keyboard:
+    layout: "us"
+    toggle: ""
+    variant: ""
+  locale: "en_US.UTF-8"
+  network:
+    version: 2
+    renderer: "networkd"
+    ethernets:
+      ens160:
+        dhcp4: true
+        dhcp6: false
+        match:
+          name: "ens160"
+  ssh:
+    allow-pw: true
+    authorized-keys: []
+    install-server: true
+  storage:
+    config:
+      - type: "disk"
+        id: "disk0"
+        grub_device: true
+        ptable: "gpt"
+        wipe: "superblock-recursive"
+        match:
+          size: "largest"
+      - type: "partition"
+        id: "root-part"
+        device: "disk0"
+        number: 1
+        size: -1
+        preserve: false
+        wipe: "superblock"
+      - type: "format"
+        id: "root-fs"
+        volume: "root-part"
+        fstype: "ext4"
+        preserve: false
+      - type: "mount"
+        id: "mount-root"
+        path: "/"
+        device: "root-fs"
+        preserve: false
+    swap:
+      size: 0
+    grub:
+      reorder_uefi: false
+  updates: "security"
+  shutdown: "reboot"
+  packages:
+    - "vim"
+  early-commands: []
+  late-commands: []

@@ -1,4 +1,4 @@
-module github.com/lefeck/ubuntu-autoinstaller
+module github.com/lefeck/UbuntuCraft
 
 go 1.24.5
 

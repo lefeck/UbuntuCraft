@@ -1,30 +1,57 @@
 <div class="form-group">
+    <h3>Swap Configuration</h3>
+    <p class="form-help">Configure a swapfile on the target system. Setting size to 0 will disable swap.</p>
     
-    <div class="form-group">
-        <label class="optional">Swap Partition Size <span class="hint-icon" data-tooltip="Swap size in GB. Use -1 to disable swap">?</span></label>
-        <div style="display: flex; gap: 10px; align-items: center;">
-            <input type="number" id="swapSize" value="0" min="0" step="1" style="flex: 1;">
-            <select id="swapSizeUnit" style="width: 80px;">
-                <option value="B">Bytes</option>
-                <option value="K">KB</option>
-                <option value="M">MB</option>
-                <option value="G" selected>GB</option>
-                <option value="T">TB</option>
-            </select>
+    <div class="form-row">
+        <div class="form-group">
+            <label class="optional">Filename <span class="hint-icon" data-tooltip="Path to swap file. Defaults to /swap.img">?</span></label>
+            <input type="text" id="swapFilename" value="/swap.img" placeholder="/swap.img">
+        </div>
+
+        <div class="form-group">
+            <label class="optional">Size <span class="hint-icon" data-tooltip="Exact size of swap file (e.g., 8G, 1GB). Set to 0 to disable swap.">?</span></label>
+            <div style="display: flex; gap: 10px; align-items: center;">
+                <input type="number" id="swapSize" value="0" min="0" step="1" style="flex: 1;">
+                <select id="swapSizeUnit" style="width: 80px;">
+                    <option value="B">Bytes</option>
+                    <option value="K">KB</option>
+                    <option value="M">MB</option>
+                    <option value="G" selected>GB</option>
+                    <option value="T">TB</option>
+                </select>
+            </div>
         </div>
     </div>
-    
-    <div class="form-group">
-        <label class="optional">GRUB UEFI Reorder <span class="hint-icon" data-tooltip="Reorder UEFI boot entries for this OS">?</span></label>
-        <select id="grubReorder">
-            <option value="false">False</option>
-            <option value="true">True</option>
-        </select>
+
+    <div class="form-row">
+        <div class="form-group">
+            <label class="optional">Max Size <span class="hint-icon" data-tooltip="Maximum size for heuristic calculation. Defaults to 8GB">?</span></label>
+            <div style="display: flex; gap: 10px; align-items: center;">
+                <input type="number" id="swapMaxsize" value="8" min="0" step="1" style="flex: 1;">
+                <select id="swapMaxsizeUnit" style="width: 80px;">
+                    <option value="B">Bytes</option>
+                    <option value="K">KB</option>
+                    <option value="M">MB</option>
+                    <option value="G" selected>GB</option>
+                    <option value="T">TB</option>
+                </select>
+            </div>
+        </div>
+
+        <div class="form-group">
+            <label class="optional">Force <span class="hint-icon" data-tooltip="Force swap file creation on unsupported filesystems (btrfs, xfs, zfs)">?</span></label>
+            <select id="swapForce">
+                <option value="false">False</option>
+                <option value="true">True</option>
+            </select>
+            <small class="form-help">Warning: May not work on btrfs, xfs, or zfs.</small>
+        </div>
     </div>
 </div>
 
 <div class="form-group">
-    <!-- <h3>Storage Configurations</h3> -->
+    <h3>Storage Configurations</h3>
+    <p class="form-help">For advanced scenarios (encrypted swap, LVM, RAID), use the Storage Configuration below.</p>
     
     <div id="storageConfigs">
         <!-- Storage configurations will be dynamically added here -->
@@ -33,4 +60,10 @@
     <button type="button" class="add-item-btn" onclick="window.StorageManager.addStorageConfig()">Add Storage Configuration</button>
 </div>
 
-
+<div class="form-group">
+    <label class="optional">GRUB UEFI Reorder <span class="hint-icon" data-tooltip="Reorder UEFI boot entries for this OS">?</span></label>
+    <select id="grubReorder">
+        <option value="false">False</option>
+        <option value="true">True</option>
+    </select>
+</div>

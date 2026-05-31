@@ -596,6 +596,12 @@ const docTemplate = `{
                         "type": "string"
                     }
                 },
+                "error-commands": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
                 "locale": {
                     "type": "string"
                 },
