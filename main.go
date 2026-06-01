@@ -4,9 +4,9 @@ import (
 	"flag"
 
 	"github.com/gin-gonic/gin"
-	"github.com/lefeck/UbuntuCraft/api"
-	"github.com/lefeck/UbuntuCraft/logger"
-	"github.com/lefeck/UbuntuCraft/server"
+	"github.com/lefeck/ubuntu-autoinstaller/api"
+	"github.com/lefeck/ubuntu-autoinstaller/logger"
+	"github.com/lefeck/ubuntu-autoinstaller/server"
 )
 
 func main() {

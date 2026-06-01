@@ -1,9 +1,10 @@
-module github.com/lefeck/UbuntuCraft
+module github.com/lefeck/ubuntu-autoinstaller
 
 go 1.24.5
 
 require (
 	github.com/gin-gonic/gin v1.10.1
+	github.com/lefeck/UbuntuCraft v0.0.0-20260601075552-d7e50bd2db8d
 	github.com/schollz/progressbar/v3 v3.18.0
 	github.com/sirupsen/logrus v1.9.3
 	github.com/stretchr/testify v1.10.0
