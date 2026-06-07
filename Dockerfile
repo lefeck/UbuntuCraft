@@ -32,6 +32,7 @@ ENV UAI_VERSION=${APP_VERSION}
 ENV UAI_PORT=8080
 ENV UAI_MODE=release
 ENV STATIC_DIR=/app/static
+ENV TEMPLATE_DIR=/app/templates
 
 # Install required packages
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -46,7 +47,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 WORKDIR /app
 COPY --from=builder /app/ubuntu-craft .
 COPY --from=builder /app/static ${STATIC_DIR}
-
+COPY --from=builder /app/templates ${TEMPLATE_DIR}
 EXPOSE ${UAI_PORT}
 
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \

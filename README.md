@@ -103,6 +103,11 @@ docker run -itd -p 8080:8080 --name ubuntu-craft-22.04  crpi-g7nxbvns4i9rnvaf.cn
 docker run -itd -p 8080:8080 --name ubuntu-craft-24.04  jetfuls/ubuntu-craft:1.0-ubuntu24.04
 # or
 docker run -itd -p 8080:8080 --name ubuntu-craft-24.04  crpi-g7nxbvns4i9rnvaf.cn-hangzhou.personal.cr.aliyuncs.com/jetfuls/ubuntu-craft:1.0-ubuntu24.04
+
+# UbuntuCraft ubuntu 26.04
+docker run -itd -p 8080:8080 --name ubuntu-craft-26.04  jetfuls/ubuntu-craft:1.0-ubuntu26.04
+# or
+docker run -itd -p 8080:8080 --name ubuntu-craft-26.04  crpi-g7nxbvns4i9rnvaf.cn-hangzhou.personal.cr.aliyuncs.com/jetfuls/ubuntu-craft:1.0-ubuntu26.04
 ```
 
 **Step 3: Access the service**

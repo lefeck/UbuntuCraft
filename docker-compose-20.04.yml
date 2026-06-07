@@ -11,6 +11,7 @@ services:
       - UAI_MODE=release
       - UAI_VERSION=1.0
       - STATIC_DIR=/app/static
+      - TEMPLATE_DIR=/app/templates
     volumes:
       - /tmp:/tmp
     healthcheck:

@@ -2,7 +2,7 @@ version: "3.9"
 
 services:
   ubuntu-craft:
-    image: jetfuls/ubuntu-craft:1.0-ubuntu24.04
+    image: jetfuls/ubuntu-craft:1.0-ubuntu26.04
     container_name: ubuntu-craft
     ports:
       - "8080:8080"

@@ -295,7 +295,7 @@ func (h *Handler) validateGenerateISORequest(request *GenerateISORequest) error 
 
 	// Validate release name validity
 	if request.CodeName != "" {
-		validReleases := []string{"focal", "jammy", "noble"}
+		validReleases := []string{"focal", "jammy", "noble", "resolute"}
 		isValid := false
 		for _, release := range validReleases {
 			if request.CodeName == release {
@@ -304,7 +304,7 @@ func (h *Handler) validateGenerateISORequest(request *GenerateISORequest) error 
 			}
 		}
 		if !isValid {
-			return fmt.Errorf("CodeName must be one of: focal, jammy, noble")
+			return fmt.Errorf("CodeName must be one of: focal, jammy, noble, resolute")
 		}
 	}
 

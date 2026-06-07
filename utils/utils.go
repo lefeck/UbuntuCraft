@@ -82,6 +82,7 @@ type ImageMeta struct {
 
 // Mapping Ubuntu major versions to codenames
 var UbuntuCodenames = map[string]string{
+	"26.04": "resolute",
 	"24.04": "noble",
 	"22.04": "jammy",
 	"20.04": "focal",
