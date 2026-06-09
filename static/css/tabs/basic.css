@@ -35,6 +35,38 @@
     word-wrap: break-word !important;
     overflow-wrap: break-word !important;
     max-width: 100% !important;
-} 
+}
+
+.iso-download-options-row {
+    grid-template-columns: minmax(220px, 320px) minmax(320px, 1fr);
+    align-items: flex-start;
+}
+
+.iso-release-group select {
+    max-width: 320px;
+}
+
+.iso-gpg-group {
+    justify-self: end;
+    width: 100%;
+}
+
+.iso-gpg-group .switch-container {
+    justify-content: flex-start;
+}
+
+@media (max-width: 768px) {
+    .iso-download-options-row {
+        grid-template-columns: 1fr;
+    }
+
+    .iso-release-group select {
+        max-width: 100%;
+    }
+
+    .iso-gpg-group {
+        justify-self: stretch;
+    }
+}
 
 

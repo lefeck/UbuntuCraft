@@ -141,8 +141,7 @@ input[type="submit"].btn.btn-secondary {
 }
 
 /* Full-width result display for preview/userdata pages */
-[data-page="preview"] .full-preview-container,
-[data-page="userdata"] .full-preview-container {
+[data-page="preview"] .full-preview-container {
     display: flex;
     flex-direction: column;
     flex: 1;
@@ -150,16 +149,44 @@ input[type="submit"].btn.btn-secondary {
     gap: 12px;
 }
 
-[data-page="preview"] .result,
-[data-page="userdata"] .result {
+[data-page="preview"] .page-header {
+    margin-bottom: 16px;
+}
+
+[data-page="preview"] .result {
 	display: block;
 	max-height: none;
 	flex: 1;
 	min-height: 0;
 	margin-top: 0;
-	border-radius: 8px;
+	border: 0;
+	background: transparent;
+	border-radius: 0;
 	font-size: 13px;
 	line-height: 1.6;
+}
+
+.preview-panel {
+    background: #fff;
+    border-radius: 8px;
+    padding: 20px 24px;
+    border: 1px solid #e2e8f0;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+}
+
+.preview-panel .result {
+    margin-bottom: 0;
+    padding: 0;
+}
+
+.preview-status {
+    margin-top: 0;
+    align-self: flex-start;
+}
+
+#userdataStatus,
+#userdataResult {
+    display: none !important;
 }
 
 .status { padding: 10px; border-radius: 6px; font-weight: 600; display: inline-block; vertical-align: middle; margin-left: 10px; }

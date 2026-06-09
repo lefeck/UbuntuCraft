@@ -438,7 +438,7 @@ function buildCompleteConfig() {
         config.userDataContent = document.getElementById('userDataContent')?.value || '';
         config.useHWEKernel = document.getElementById('useHWEKernelCheckbox')?.checked || false;
         config.md5Checksum = document.getElementById('md5ChecksumCheckbox')?.checked || true;
-        config.gpgVerify = document.getElementById('gpgVerifyCheckbox')?.checked || true;
+        config.gpgVerify = document.getElementById('gpgVerifyCheckbox')?.checked ?? false;
         
         return config;
         
@@ -463,7 +463,7 @@ async function startBuildProcess(config) {
             packageList: config.packageList ? config.packageList.split('\n').filter(p => p.trim()) : [],
             useHWEKernel: config.useHWEKernel || false,
             md5Checksum: config.md5Checksum !== false,
-            gpgVerify: config.gpgVerify !== false
+            gpgVerify: config.gpgVerify ?? false
         };
 
         const response = await fetch(`${API_BASE}/iso/generate`, {

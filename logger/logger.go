@@ -8,6 +8,7 @@ import (
 )
 
 var Logger *logrus.Logger
+var AccessLogWriter io.Writer
 
 // LogConfig holds logging configuration
 type LogConfig struct {
@@ -40,9 +41,15 @@ func init() {
 	Logger.SetLevel(logrus.InfoLevel)
 
 	// Write logs to both stdout and file
-	logFile, err := os.OpenFile("build.log", os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0666)
-	if err == nil {
-		Logger.SetOutput(io.MultiWriter(os.Stdout, logFile))
+	logFile, err := os.OpenFile("/var/log/ubuntucraft.log", os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
+	if err != nil {
+		Logger.SetOutput(os.Stdout)
+		AccessLogWriter = os.Stdout
+		Logger.Warnf("Failed to open log file /var/log/ubuntucraft.log, falling back to stdout only: %v", err)
+	} else {
+		multiWriter := io.MultiWriter(os.Stdout, logFile)
+		Logger.SetOutput(multiWriter)
+		AccessLogWriter = multiWriter
 	}
 
 	// Initialize function variables after Logger is created

@@ -38,8 +38,8 @@ func New(handler *api.Handler, cfg *ConfigInfo) (*Server, error) {
 	gin.SetMode(cfg.Mode)
 	engine := gin.New()
 	engine.Use(
+		gin.LoggerWithWriter(logger.AccessLogWriter),
 		gin.Recovery(),
-		gin.Logger(),
 		middleware.CORSMiddleware(),
 	)
 

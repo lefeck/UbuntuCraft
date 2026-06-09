@@ -71,7 +71,7 @@ const (
 
 // Filtering conditions
 var (
-	RegexISOName   = `ubuntu-(\d{2}\.04)(\.\d+)?-live-server-amd64\.iso` // Regex to match Ubuntu ISO filenames
-	DepLineRegex   = regexp.MustCompile(`^[A-Za-z0-9]`)                  // Match lines starting with alphanumeric
-	ExcludeKeyword = "i386"                                              // Exclude this architecture
+	RegexISOName   = `ubuntu-[0-9]{2}\.04(\.[0-9]+)?-live-server-amd64\.iso` // Matches Ubuntu ISO filenames with or without patch versions
+	DepLineRegex   = regexp.MustCompile(`^[A-Za-z0-9]`)                      // Match lines starting with alphanumeric
+	ExcludeKeyword = "i386"                                                  // Exclude this architecture
 )

@@ -2051,6 +2051,7 @@ async function pollBuildStatus(buildID) {
                 
                 // Update progress bar
                 document.getElementById('progressFill').style.width = `${status.progress}%`;
+                updateBuildProgressText(status);
                 
                 // Update steps based on status.steps
                 updateStepsFromStatus(status.steps);
@@ -2154,6 +2155,23 @@ function updateStepsFromStatus(steps) {
     }
 }
 
+function updateBuildProgressText(status) {
+    const progressText = document.getElementById('progressText');
+    if (!progressText) return;
+
+    if (status.steps?.download === 'running' && status.downloadDisplayText) {
+        progressText.textContent = `Downloading ISO Image: ${status.downloadDisplayText}`;
+        return;
+    }
+
+    if (status.status === 'completed') {
+        progressText.textContent = 'Build completed successfully';
+        return;
+    }
+
+    progressText.textContent = `Overall progress: ${status.progress}%`;
+}
+
 /**
  * Add log entry
  */
@@ -2250,6 +2268,7 @@ function showBuildProgress() {
 function resetBuildProgress() {
     const steps = document.querySelectorAll('.step');
     const progressFill = document.getElementById('progressFill');
+    const progressText = document.getElementById('progressText');
     const logContainer = document.getElementById('logContainer');
     const generateBtn = document.getElementById('generateBtn');
     
@@ -2260,6 +2279,7 @@ function resetBuildProgress() {
     
     // Reset progress bar
     if (progressFill) progressFill.style.width = '0%';
+    if (progressText) progressText.textContent = '';
     
     // Clear logs
     if (logContainer) logContainer.innerHTML = '';
@@ -2402,6 +2422,14 @@ function showStatus(elementId, type, message) {
  * Generate user data configuration
  */
 async function generateUserData() {
+    return await generateUserDataInternal(false);
+}
+
+async function generateUserDataAndContinue() {
+    return await generateUserDataInternal(true);
+}
+
+async function generateUserDataInternal(continueToIso = false) {
     // First perform frontend required field validation
     const basicOk = validateBasicRequired('userdataStatus');
     if (!basicOk) {
@@ -2441,35 +2469,42 @@ async function generateUserData() {
         // Keep consistent with original version: don't check response.ok, directly try to parse JSON
         const result = await response.json();
         if (result.success) {
+            const generatedUserData = result.userData || result["user-data"] || 'User data configuration generated';
+
             // Display YAML content in userdataResult area
             const userDataResultElement = document.getElementById('userdataResult');
             if (userDataResultElement) {
-                userDataResultElement.textContent = result.userData || result["user-data"] || 'User data configuration generated';
+                userDataResultElement.textContent = generatedUserData;
                 userDataResultElement.style.display = 'block';
             }
             
             // Sync generated user-data to userDataContent field (consistent with original version)
             const userDataContentElement = document.getElementById('userDataContent');
             if (userDataContentElement) {
-                userDataContentElement.value = result.userData || result["user-data"] || 'User data configuration generated';
+                userDataContentElement.value = generatedUserData;
                 console.log('User data synchronized to userDataContent field');
             }
             
             // Also display YAML content in configuration preview area
             const previewElement = document.getElementById('configPreview');
             if (previewElement) {
-                previewElement.textContent = result.userData || result["user-data"] || 'User data configuration generated';
+                previewElement.textContent = generatedUserData;
                 previewElement.style.display = 'block';
             }
             
-            showStatus('userdataStatus', 'success', 'User data configuration generated successfully');
-            if (window.AppNavigation) window.AppNavigation.switchPage('userdata');
+            showStatus('userdataStatus', 'success', continueToIso ? 'User data generated successfully. Continuing to ISO Builder...' : 'User data configuration generated successfully');
+            if (window.AppNavigation) {
+                window.AppNavigation.switchPage(continueToIso ? 'iso' : 'preview');
+            }
+            return { valid: true, userData: generatedUserData };
         } else {
             showStatus('userdataStatus', 'error', result.error || 'User data generation failed');
+            return { valid: false, errors: [result.error || 'User data generation failed'] };
         }
     } catch (error) {
         console.error('User data generation error:', error);
         showStatus('userdataStatus', 'error', 'User data generation failed: ' + error.message);
+        return { valid: false, errors: [error.message] };
     }
 }
 
@@ -2489,6 +2524,7 @@ window.ConfigManager = {
     validateConfig,
     previewUserData,
     generateUserData,
+    generateUserDataAndContinue,
     initializeAllConfigs,
     toggleSourceType,
     handleFileSelect,

@@ -126,6 +126,7 @@ autoinstall:
               id: mount-swap
               device: fs-swap
               preserve: false
+              path: none
         grub:
             reorder_uefi: false
     updates: ""

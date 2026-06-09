@@ -28,13 +28,17 @@ type Handler struct {
 
 // BuildStatus
 type BuildStatus struct {
-	ID       string            `json:"id"`
-	Status   string            `json:"status"`
-	Progress int               `json:"progress"`
-	Steps    map[string]string `json:"steps"`
-	Logs     []string          `json:"logs"`
-	Error    string            `json:"error,omitempty"`
-	Output   string            `json:"output,omitempty"`
+	ID                  string            `json:"id"`
+	Status              string            `json:"status"`
+	Progress            int               `json:"progress"`
+	Steps               map[string]string `json:"steps"`
+	Logs                []string          `json:"logs"`
+	DownloadPercent     float64           `json:"downloadPercent,omitempty"`
+	DownloadBytes       int64             `json:"downloadBytes,omitempty"`
+	DownloadTotalBytes  int64             `json:"downloadTotalBytes,omitempty"`
+	DownloadDisplayText string            `json:"downloadDisplayText,omitempty"`
+	Error               string            `json:"error,omitempty"`
+	Output              string            `json:"output,omitempty"`
 }
 
 // NewHandler
@@ -518,12 +522,35 @@ func (h *Handler) buildProcessWithStatus(request *GenerateISORequest, status *Bu
 	switch request.SourceType {
 	case "download":
 		status.Steps["download"] = "running"
-		status.Logs = append(status.Logs, "🌎 Downloading ISO...")
-		localImagePath, err = h.generator.DownloadISOImage(request.CodeName, request.GPGVerify)
+		status.Logs = append(status.Logs, "🌎 Downloading ISO Image...")
+		lastLoggedPercent := -1
+		localImagePath, err = h.generator.DownloadISOImage(request.CodeName, request.GPGVerify, func(download utils.DownloadProgress) {
+			mappedProgress := 10
+			if download.Percent > 0 {
+				mappedProgress = 10 + int(download.Percent*0.2)
+				if mappedProgress > 29 {
+					mappedProgress = 29
+				}
+			}
+			status.Progress = mappedProgress
+			status.Steps["download"] = "running"
+			status.DownloadPercent = download.Percent
+			status.DownloadBytes = download.Downloaded
+			status.DownloadTotalBytes = download.Total
+			status.DownloadDisplayText = fmt.Sprintf("%.1f%% · %s / %s", download.Percent, utils.FormatBytes(download.Downloaded), utils.FormatBytes(download.Total))
+
+			percentInt := int(download.Percent)
+			if percentInt != lastLoggedPercent && percentInt%5 == 0 {
+				lastLoggedPercent = percentInt
+				status.Logs = append(status.Logs, fmt.Sprintf("🌎 Downloading ISO Image... %.1f%%", download.Percent))
+			}
+		})
 		if err != nil {
 			return fmt.Errorf("ISO download failed: %w", err)
 		}
 		updateProgress(30, "download", "✅ ISO downloaded successfully")
+		status.DownloadPercent = 100
+		status.DownloadDisplayText = fmt.Sprintf("100.0%% · %s / %s", utils.FormatBytes(status.DownloadBytes), utils.FormatBytes(status.DownloadTotalBytes))
 
 		imageMeta, err = utils.NewImageMeta(localImagePath)
 		if err != nil {
@@ -628,7 +655,7 @@ func (h *Handler) buildProcessWithStatus(request *GenerateISORequest, status *Bu
 	// Step 9: Repackage ISO image
 	status.Steps["repackage"] = "running"
 	status.Logs = append(status.Logs, "📦 Repackaging ISO image...")
-	if err := h.generator.RepackageISOImage(imageMeta.CodeName, request.DestinationISO); err != nil {
+	if err := h.generator.RepackageISOImage(imageMeta.CodeName, imageMeta.VolumeID, request.DestinationISO); err != nil {
 		return fmt.Errorf("failed to repackage ISO: %w", err)
 	}
 	updateProgress(100, "repackage", "✅ ISO repackaged successfully")

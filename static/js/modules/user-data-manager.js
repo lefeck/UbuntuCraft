@@ -88,7 +88,7 @@ function generateUserData() {
             if (window.showStatus) {
                 window.showStatus('configActionStatus', 'success', 'User-data generated locally!');
             }
-            if (window.AppNavigation) window.AppNavigation.switchPage('userdata');
+            if (window.AppNavigation) window.AppNavigation.switchPage('preview');
         });
     } catch (error) {
         console.error('User-data generation failed:', error);

@@ -37,13 +37,10 @@
             </div>
             <nav class="sidebar-nav">
                 <button class="sidebar-item active" data-page="config" onclick="AppNavigation.switchPage('config')">
-                    <span class="sidebar-label">Settings</span>
+                    <span class="sidebar-label">Configuration</span>
                 </button>
                 <button class="sidebar-item" data-page="preview" onclick="AppNavigation.switchPage('preview')">
-                    <span class="sidebar-label">Config Preview</span>
-                </button>
-                <button class="sidebar-item" data-page="userdata" onclick="AppNavigation.switchPage('userdata')">
-                    <span class="sidebar-label">Cloud-init</span>
+                    <span class="sidebar-label">Preview</span>
                 </button>
                 <button class="sidebar-item" data-page="iso" onclick="AppNavigation.switchPage('iso')">
                     <span class="sidebar-label">ISO Builder</span>
@@ -156,31 +153,28 @@
                         <button type="button" class="btn btn-secondary" onclick="loadDefaultConfig()">Load Default Config</button>
                         <button type="button" class="btn btn-secondary" onclick="validateConfig()">Validate Config</button>
                         <button type="button" class="btn btn-success" onclick="previewUserData()" style="background: linear-gradient(135deg, #5cb85c 0%, #4cae4c 100%) !important; color: white !important;">Preview Config</button>
-                        <button type="button" class="btn" onclick="generateUserData()">Generate user-data</button>
                     </div>
                     <div id="configActionStatus" class="action-status" style="display:none;"></div>
                 </div>
             </div>
 
-            <!-- Page: Configuration Preview -->
+            <!-- Page: Preview -->
             <div class="content-page" data-page="preview">
                 <div class="page-header">
                     <h2>Configuration Preview</h2>
                 </div>
                 <div class="full-preview-container">
-                    <div id="configPreview" class="result" style="display: none;"></div>
-                    <div id="configStatus"></div>
+                    <section class="preview-panel">
+                        <div id="configPreview" class="result" style="display: none;"></div>
+                    </section>
+                    <div id="configStatus" class="preview-status"></div>
+                    <div id="userdataStatus" style="display: none;"></div>
+                    <div id="userdataResult" style="display: none;"></div>
                 </div>
-            </div>
-
-            <!-- Page: Generated user-data -->
-            <div class="content-page" data-page="userdata">
-                <div class="page-header">
-                    <h2>Generated user-data</h2>
-                </div>
-                <div class="full-preview-container">
-                    <div id="userdataResult" class="result" style="display: none;"></div>
-                    <div id="userdataStatus"></div>
+                <div class="page-actions" style="margin-top: 20px;">
+                    <div class="page-actions-row">
+                        <button type="button" class="btn btn-primary" onclick="generateUserDataAndContinue()">Generate user-data</button>
+                    </div>
                 </div>
             </div>
 
@@ -231,24 +225,25 @@
 
                 <!-- Download ISO Section -->
                 <div id="downloadIsoSection" class="form-group" style="display: none;">
-                    <label class="optional">Ubuntu Release <span class="hint-icon" data-tooltip="Release codename (e.g., focal, jammy, noble)">?</span></label>
-                    <select id="codename">
-                        <option value="focal">focal (20.04)</option>
-                        <option value="jammy" selected>jammy (22.04)</option>
-                        <option value="noble">noble (24.04)</option>
-                        <option value="resolute">resolute (26.04)</option>
-                    </select>
-                    <div class="form-row" style="margin-top: 15px;">
-                        <div class="form-group">
+                    <div class="form-row iso-download-options-row" style="align-items: flex-start; gap: 20px;">
+                        <div class="form-group iso-release-group">
+                            <label class="optional">Ubuntu Release <span class="hint-icon" data-tooltip="Release codename (e.g., focal, jammy, noble)">?</span></label>
+                            <select id="codename">
+                                <option value="focal">focal (20.04)</option>
+                                <option value="jammy" selected>jammy (22.04)</option>
+                                <option value="noble">noble (24.04)</option>
+                                <option value="resolute">resolute (26.04)</option>
+                            </select>
+                        </div>
+                        <div class="form-group iso-gpg-group">
                             <label class="optional">GPG Signature Verification</label>
                             <div class="switch-container">
                                 <label class="switch">
-                                    <input type="checkbox" id="gpgVerifyCheckbox" checked>
+                                    <input type="checkbox" id="gpgVerifyCheckbox">
                                     <span class="slider"></span>
                                 </label>
                                 <span class="switch-label">Verify ISO integrity with GPG signature</span>
                             </div>
-                            <small class="form-help">When enabled, the ISO is verified with its GPG signature to ensure integrity and authenticity.</small>
                         </div>
                     </div>
                 </div>
@@ -311,9 +306,10 @@
                     <div class="progress-bar">
                         <div class="progress-fill" id="progressFill"></div>
                     </div>
+                    <div id="progressText" class="progress-text" style="margin-top: 8px; color: #666; font-size: 14px;"></div>
                     <div class="build-steps">
                         <div class="step" data-step="prepare">Preparing installation environment</div>
-                        <div class="step" data-step="download">Downloading ISO</div>
+                        <div class="step" data-step="download">Downloading ISO Image</div>
                         <div class="step" data-step="upload">Using local ISO</div>
                         <div class="step" data-step="verify">Verifying ISO signature</div>
                         <div class="step" data-step="extract">Extracting ISO</div>

@@ -17,8 +17,8 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
-
 	"text/template"
 	"time"
 )
@@ -224,7 +224,7 @@ func (g *Generator) buildDownloadURL(codename string) string {
 }
 
 // DownloadImage downloads the Ubuntu ISO page, resolves the filename and fetches the ISO.
-func (gen *Generator) DownloadImage(codename string, gpgVerify bool) (imagepath string, err error) {
+func (gen *Generator) DownloadImage(codename string, gpgVerify bool, progress func(utils.DownloadProgress)) (imagepath string, err error) {
 	url := gen.buildDownloadURL(codename)
 	logger.Info("Checking for current release...")
 
@@ -242,7 +242,7 @@ func (gen *Generator) DownloadImage(codename string, gpgVerify bool) (imagepath 
 	if len(matches) == 0 {
 		return "", fmt.Errorf("no ISO file found on the download page")
 	}
-	fileName := matches[0] // 22.04.5-live-server-amd64.iso
+	fileName := matches[0] // ubuntu-22.04-live-server-amd64.iso or ubuntu-22.04.5-live-server-amd64.iso
 
 	imagePath := gen.Path.DownloadFile(fileName) // /tmp/downloads/ubuntu-22.04.5-live-server-amd64.iso
 
@@ -252,7 +252,10 @@ func (gen *Generator) DownloadImage(codename string, gpgVerify bool) (imagepath 
 	if _, err := os.Stat(imagePath); os.IsNotExist(err) {
 		logger.Infof("Downloading ISO image for Ubuntu %s %s...", version, codename)
 		downloadURL := fmt.Sprintf("%s/%s", url, fileName)
-		if err := utils.DownloadFile(downloadURL, imagePath); err != nil {
+		logger.Infof("Downloading ISO image file %s", downloadURL)
+		if err := utils.DownloadFileWithProgress(downloadURL, imagePath, progress, func(message string) {
+			logger.Info(message)
+		}); err != nil {
 			return "", fmt.Errorf("failed to download ISO: %w", err)
 		}
 		logger.Infof("Downloaded and saved to %s", imagePath)
@@ -269,8 +272,8 @@ func (gen *Generator) DownloadImage(codename string, gpgVerify bool) (imagepath 
 }
 
 // DownloadISOImage is a clearer alias for DownloadImage.
-func (gen *Generator) DownloadISOImage(codename string, gpgVerify bool) (string, error) {
-	return gen.DownloadImage(codename, gpgVerify)
+func (gen *Generator) DownloadISOImage(codename string, gpgVerify bool, progress func(utils.DownloadProgress)) (string, error) {
+	return gen.DownloadImage(codename, gpgVerify, progress)
 }
 
 // VerifyISO verifies ISO using downloaded SHA256SUMS and Ubuntu signing keys.
@@ -588,45 +591,64 @@ func (gen *Generator) adjustPermissions() error {
 }
 
 // RepackageISOImage rebuilds ISO using xorriso templates appropriate for codename.
-func (gen *Generator) RepackageISOImage(codename string, destinationISO string) error {
+func (gen *Generator) RepackageISOImage(codename string, volumeID string, destinationISO string) error {
 	logger.Info("Repackaging extracted files into an ISO image...")
 
-	// Ensure destination has .iso extension
 	if filepath.Ext(destinationISO) != ".iso" {
 		return fmt.Errorf("verification of iso image format failed")
 	}
 
 	buildDir := gen.Path.BuildDir()
-	// Change into build directory while running xorriso
 	restore, err := changeDir(buildDir)
 	if err != nil {
 		return err
 	}
 	defer restore()
 
-	destinationISOFile := gen.Path.DownloadFile(destinationISO)
-	// Generate final ISO label
-	isoName, err := gen.generateISOName(codename)
+	destinationISOFile, err := gen.resolveDestinationISOPath(destinationISO)
 	if err != nil {
-		return fmt.Errorf("failed to generate ISO name: %w", err)
+		return fmt.Errorf("failed to resolve destination iso path: %w", err)
+	}
+	if err := os.MkdirAll(filepath.Dir(destinationISOFile), DefaultDirPerm); err != nil {
+		return fmt.Errorf("failed to create destination iso directory: %w", err)
 	}
 
-	// Build xorriso command from templates
-	cmdStr, err := gen.buildXorrisoCommand(codename, isoName, destinationISOFile)
+	isoName := volumeID
+	if isoName == "" {
+		isoName, err = gen.generateISOName(codename)
+		if err != nil {
+			return fmt.Errorf("failed to generate ISO name: %w", err)
+		}
+	}
+
+	cmdObj, cmdStr, err := gen.buildXorrisoCommand(codename, isoName, destinationISOFile)
 	if err != nil {
 		return fmt.Errorf("failed to build xorriso command: %w", err)
 	}
 
-	// Execute xorriso
-	logger.Info("Executing xorriso to create final ISO...")
-	_, _, err = gen.executor.RunCmd(cmdStr)
+	logger.Infof("Executing xorriso to create final ISO: %s", cmdStr)
+	stdout, stderr, err := gen.executor.RunCmd(cmdObj)
 	if err != nil {
-		logger.Errorf("xorriso command failed: %v", err)
-		return err
+		logger.Errorf("xorriso command failed: %v, stdout: %s, stderr: %s", err, stdout, stderr)
+		return fmt.Errorf("xorriso failed: %w; stderr: %s", err, strings.TrimSpace(stderr))
 	}
 
-	logger.Infof("Successfully repackaged into ISO: %s", destinationISO)
+	logger.Infof("Successfully repackaged into ISO: %s", destinationISOFile)
 	return nil
+}
+
+func (gen *Generator) ResolveDestinationISOPath(destinationISO string) (string, error) {
+	return gen.resolveDestinationISOPath(destinationISO)
+}
+
+func (gen *Generator) resolveDestinationISOPath(destinationISO string) (string, error) {
+	if destinationISO == "" {
+		return "", fmt.Errorf("destination iso path cannot be empty")
+	}
+	if filepath.IsAbs(destinationISO) {
+		return destinationISO, nil
+	}
+	return gen.Path.DownloadFile(destinationISO), nil
 }
 
 // generateISOName generates the ISO name based on the codename.
@@ -640,25 +662,56 @@ func (gen *Generator) generateISOName(codename string) (string, error) {
 }
 
 // buildXorrisoCommand builds the xorriso command based on the codename.
-func (gen *Generator) buildXorrisoCommand(codename, isoName, destinationISOFile string) (string, error) {
-	var cmdBuilder bytes.Buffer
-	data := map[string]string{
-		"Label":  isoName,
-		"Output": destinationISOFile,
-	}
+func (gen *Generator) buildXorrisoCommand(codename, isoName, destinationISOFile string) (*exec.Cmd, string, error) {
+	args := []string{"-as", "mkisofs", "-r", "-V", isoName, "-o", destinationISOFile}
 
-	var tmpl *template.Template
 	if codename == "focal" {
-		tmpl = XorrisoCmdUbuntu2004Template
+		args = append(args,
+			"-J",
+			"-b", "isolinux/isolinux.bin",
+			"-c", "isolinux/boot.cat",
+			"-no-emul-boot",
+			"-boot-load-size", "4",
+			"-isohybrid-mbr", ISOhdpfxPath,
+			"-boot-info-table",
+			"-input-charset", "utf-8",
+			"-eltorito-alt-boot",
+			"-e", "boot/grub/efi.img",
+			"-no-emul-boot",
+			"-isohybrid-gpt-basdat",
+			".",
+		)
 	} else {
-		tmpl = XorrisoCmdUbuntu2204Template
+		args = append(args,
+			"--grub2-mbr", "../BOOT/1-Boot-NoEmul.img",
+			"-partition_offset", "16",
+			"--mbr-force-bootable",
+			"-append_partition", "2", "28732ac11ff8d211ba4b00a0c93ec93b", "../BOOT/2-Boot-NoEmul.img",
+			"-appended_part_as_gpt",
+			"-iso_mbr_part_type", "a2a0d0ebe5b9334487c068b6b72699c7",
+			"-c", "/boot.catalog",
+			"-b", "/boot/grub/i386-pc/eltorito.img",
+			"-no-emul-boot",
+			"-boot-load-size", "4",
+			"-boot-info-table",
+			"--grub2-boot-info",
+			"-eltorito-alt-boot",
+			"-e", "--interval:appended_partition_2:::",
+			"-no-emul-boot",
+			".",
+		)
 	}
 
-	if err := tmpl.Execute(&cmdBuilder, data); err != nil {
-		return "", err
-	}
+	cmdObj := exec.Command(Xorriso, args...)
+	return cmdObj, formatCommandForLog(cmdObj.Args), nil
+}
 
-	return cmdBuilder.String(), nil
+func formatCommandForLog(args []string) string {
+	quoted := make([]string, 0, len(args))
+	for _, arg := range args {
+		quoted = append(quoted, strconv.Quote(arg))
+	}
+	return strings.Join(quoted, " ")
 }
 
 // CleanUp deletes the build directory tree.

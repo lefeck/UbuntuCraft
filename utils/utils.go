@@ -4,12 +4,16 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
-	"github.com/schollz/progressbar/v3"
 	"io"
-	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
+	"sync"
+	"time"
+
+	"github.com/lefeck/ubuntu-autoinstaller/logger"
 )
 
 // CalculateSHA256
@@ -27,47 +31,181 @@ func CalculateSHA256(filePath string) (string, error) {
 	return hex.EncodeToString(hash.Sum(nil)), nil
 }
 
+type DownloadProgress struct {
+	Downloaded int64
+	Total      int64
+	Percent    float64
+}
+
+type ProgressCallback func(DownloadProgress)
+
+type LoggerCallback func(string)
+
 // downloadFile
 func DownloadFile(url, dest string) error {
-	resp, err := http.Get(url)
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
+	return DownloadFileWithProgress(url, dest, nil, nil)
+}
 
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("bad status: %s", resp.Status)
+func DownloadFileWithProgress(url, dest string, progress ProgressCallback, logProgress LoggerCallback) error {
+	if err := os.MkdirAll(filepath.Dir(dest), 0o755); err != nil {
+		return fmt.Errorf("failed to create download directory: %w", err)
 	}
 
-	out, err := os.Create(dest)
-	if err != nil {
-		return err
+	tmpDest := dest + ".part"
+	if err := os.Remove(tmpDest); err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("failed to remove stale partial file: %w", err)
 	}
-	defer out.Close()
 
-	size := resp.ContentLength
-
-	bar := progressbar.NewOptions64(
-		size,
-		progressbar.OptionSetDescription("Downloading"),
-		progressbar.OptionSetWidth(30),
-		progressbar.OptionShowBytes(true),
-		progressbar.OptionShowCount(),
-		progressbar.OptionSetTheme(progressbar.Theme{
-			Saucer:        "#",
-			SaucerPadding: "-",
-			BarStart:      "[",
-			BarEnd:        "]",
-		}),
-	)
-
-	_, err = io.Copy(out, io.TeeReader(resp.Body, bar))
-	if err != nil {
+	if err := downloadFileWithCurl(url, tmpDest, progress, logProgress); err != nil {
+		_ = os.Remove(tmpDest)
 		return err
 	}
 
-	fmt.Println("\nDownload complete")
+	if err := os.Rename(tmpDest, dest); err != nil {
+		_ = os.Remove(tmpDest)
+		return fmt.Errorf("failed to finalize downloaded file: %w", err)
+	}
+
+	logger.Infof("Download complete: %s", dest)
 	return nil
+}
+
+func downloadFileWithCurl(url, dest string, progress ProgressCallback, logProgress LoggerCallback) error {
+	if _, err := exec.LookPath("curl"); err != nil {
+		return fmt.Errorf("curl not found: %w", err)
+	}
+
+	totalSize, _ := fetchRemoteFileSize(url)
+	if totalSize > 0 && logProgress != nil {
+		logProgress(fmt.Sprintf("🌎 Downloading ISO Image... 0.0%% · 0 B / %s", FormatBytes(totalSize)))
+	}
+
+	var wg sync.WaitGroup
+	done := make(chan struct{})
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		monitorDownloadProgress(dest, totalSize, progress, logProgress, done)
+	}()
+
+	cmd := exec.Command("curl", "-fL", "--output", dest, url)
+	err := cmd.Run()
+	close(done)
+	wg.Wait()
+	if err != nil {
+		return fmt.Errorf("curl download failed: %w", err)
+	}
+
+	fileInfo, statErr := os.Stat(dest)
+	if statErr == nil && progress != nil {
+		finalSize := fileInfo.Size()
+		finalTotal := totalSize
+		if finalTotal <= 0 {
+			finalTotal = finalSize
+		}
+		progress(DownloadProgress{
+			Downloaded: finalSize,
+			Total:      finalTotal,
+			Percent:    100,
+		})
+	}
+	if statErr == nil && logProgress != nil {
+		finalSize := fileInfo.Size()
+		finalTotal := totalSize
+		if finalTotal <= 0 {
+			finalTotal = finalSize
+		}
+		logProgress(fmt.Sprintf("🌎 Downloading ISO Image... 100.0%% · %s / %s", FormatBytes(finalSize), FormatBytes(finalTotal)))
+	}
+
+	return nil
+}
+
+func fetchRemoteFileSize(url string) (int64, error) {
+	cmd := exec.Command("curl", "-fsLI", url)
+	output, err := cmd.Output()
+	if err != nil {
+		return 0, fmt.Errorf("failed to fetch remote file size: %w", err)
+	}
+
+	lines := strings.Split(string(output), "\n")
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(strings.ToLower(trimmed), "content-length:") {
+			value := strings.TrimSpace(strings.TrimPrefix(trimmed, "Content-Length:"))
+			value = strings.TrimSpace(strings.TrimPrefix(value, "content-length:"))
+			size, parseErr := strconv.ParseInt(value, 10, 64)
+			if parseErr == nil {
+				return size, nil
+			}
+		}
+	}
+
+	return 0, nil
+}
+
+func monitorDownloadProgress(dest string, totalSize int64, progress ProgressCallback, logProgress LoggerCallback, done <-chan struct{}) {
+	ticker := time.NewTicker(2 * time.Second)
+	defer ticker.Stop()
+
+	lastLoggedPercent := -1
+	for {
+		select {
+		case <-done:
+			return
+		case <-ticker.C:
+			fileInfo, err := os.Stat(dest)
+			if err != nil {
+				if os.IsNotExist(err) {
+					continue
+				}
+				return
+			}
+
+			downloaded := fileInfo.Size()
+			percent := 0.0
+			percentInt := lastLoggedPercent
+			if totalSize > 0 {
+				percent = float64(downloaded) / float64(totalSize) * 100
+				if percent > 100 {
+					percent = 100
+				}
+				percentInt = int(percent)
+			}
+
+			if progress != nil {
+				progress(DownloadProgress{
+					Downloaded: downloaded,
+					Total:      totalSize,
+					Percent:    percent,
+				})
+			}
+
+			if logProgress != nil && totalSize > 0 && percentInt != lastLoggedPercent && percentInt >= 0 && percentInt%5 == 0 {
+				lastLoggedPercent = percentInt
+				logProgress(fmt.Sprintf("🌎 Downloading ISO Image... %.1f%% (%s / %s)", percent, FormatBytes(downloaded), FormatBytes(totalSize)))
+			}
+		}
+	}
+}
+
+func FormatBytes(size int64) string {
+	if size <= 0 {
+		return "0 B"
+	}
+
+	units := []string{"B", "KB", "MB", "GB", "TB"}
+	value := float64(size)
+	unitIndex := 0
+	for value >= 1024 && unitIndex < len(units)-1 {
+		value /= 1024
+		unitIndex++
+	}
+
+	if unitIndex == 0 {
+		return fmt.Sprintf("%d %s", size, units[unitIndex])
+	}
+	return fmt.Sprintf("%.1f %s", value, units[unitIndex])
 }
 
 type ImageMeta struct {
@@ -78,6 +216,7 @@ type ImageMeta struct {
 	Arch     string
 	Ext      string
 	CodeName string
+	VolumeID string
 }
 
 // Mapping Ubuntu major versions to codenames
@@ -105,14 +244,12 @@ func NewImageMeta(filename string) (*ImageMeta, error) {
 	ext := filepath.Ext(base)
 	name := strings.TrimSuffix(base, ext)
 
-	//
 	parts := strings.Split(name, "-")
-
 	if len(parts) < 5 {
 		return nil, fmt.Errorf("unexpected ISO filename format: %s", filename)
 	}
 
-	return &ImageMeta{
+	imageMeta := &ImageMeta{
 		Distro:   parts[0], // ubuntu
 		Version:  parts[1], // 22.04.5
 		Build:    parts[2], // live
@@ -120,5 +257,43 @@ func NewImageMeta(filename string) (*ImageMeta, error) {
 		Arch:     parts[4], // amd64
 		Ext:      ext,      // .iso
 		CodeName: getCodename(parts[1]),
-	}, nil
+	}
+
+	volumeID, err := readISOVolumeID(filename)
+	if err != nil {
+		logger.Warnf("failed to read ISO volume ID for %s: %v", filename, err)
+	} else {
+		imageMeta.VolumeID = volumeID
+	}
+
+	return imageMeta, nil
+}
+
+func readISOVolumeID(filename string) (string, error) {
+	if _, err := exec.LookPath("xorriso"); err != nil {
+		return "", fmt.Errorf("xorriso not found: %w", err)
+	}
+
+	cmd := exec.Command("xorriso", "-indev", filename, "-pvd_info")
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return "", fmt.Errorf("failed to inspect ISO volume ID: %w: %s", err, strings.TrimSpace(string(output)))
+	}
+
+	for _, line := range strings.Split(string(output), "\n") {
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, "Volume id") || strings.HasPrefix(trimmed, "Volume Id") {
+			parts := strings.SplitN(trimmed, ":", 2)
+			if len(parts) != 2 {
+				continue
+			}
+			volumeID := strings.TrimSpace(parts[1])
+			volumeID = strings.Trim(volumeID, "'\"")
+			if volumeID != "" {
+				return volumeID, nil
+			}
+		}
+	}
+
+	return "", fmt.Errorf("volume ID not found in xorriso output")
 }
