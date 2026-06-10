@@ -66,7 +66,7 @@ func DownloadFileWithProgress(url, dest string, progress ProgressCallback, logPr
 		return fmt.Errorf("failed to finalize downloaded file: %w", err)
 	}
 
-	logger.Infof("Download complete: %s", dest)
+	logger.Info(fmt.Sprintf("Download complete: %s", dest))
 	return nil
 }
 
@@ -77,7 +77,7 @@ func downloadFileWithCurl(url, dest string, progress ProgressCallback, logProgre
 
 	totalSize, _ := fetchRemoteFileSize(url)
 	if totalSize > 0 && logProgress != nil {
-		logProgress(fmt.Sprintf("🌎 Downloading ISO Image... 0.0%% · 0 B / %s", FormatBytes(totalSize)))
+		logProgress(fmt.Sprintf("Downloading ISO Image... 0.0%% · 0 B / %s", FormatBytes(totalSize)))
 	}
 
 	var wg sync.WaitGroup
@@ -115,7 +115,7 @@ func downloadFileWithCurl(url, dest string, progress ProgressCallback, logProgre
 		if finalTotal <= 0 {
 			finalTotal = finalSize
 		}
-		logProgress(fmt.Sprintf("🌎 Downloading ISO Image... 100.0%% · %s / %s", FormatBytes(finalSize), FormatBytes(finalTotal)))
+		logProgress(fmt.Sprintf("Downloading ISO Image... 100.0%% · %s / %s", FormatBytes(finalSize), FormatBytes(finalTotal)))
 	}
 
 	return nil
@@ -183,7 +183,7 @@ func monitorDownloadProgress(dest string, totalSize int64, progress ProgressCall
 
 			if logProgress != nil && totalSize > 0 && percentInt != lastLoggedPercent && percentInt >= 0 && percentInt%5 == 0 {
 				lastLoggedPercent = percentInt
-				logProgress(fmt.Sprintf("🌎 Downloading ISO Image... %.1f%% (%s / %s)", percent, FormatBytes(downloaded), FormatBytes(totalSize)))
+				logProgress(fmt.Sprintf("Downloading ISO Image... %.1f%% (%s / %s)", percent, FormatBytes(downloaded), FormatBytes(totalSize)))
 			}
 		}
 	}
@@ -261,7 +261,7 @@ func NewImageMeta(filename string) (*ImageMeta, error) {
 
 	volumeID, err := readISOVolumeID(filename)
 	if err != nil {
-		logger.Warnf("failed to read ISO volume ID for %s: %v", filename, err)
+		logger.Warn(fmt.Sprintf("failed to read ISO volume ID for %s: %v", filename, err))
 	} else {
 		imageMeta.VolumeID = volumeID
 	}

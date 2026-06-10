@@ -3,14 +3,11 @@ package cmd
 import (
 	"bytes"
 	"fmt"
-
-	"github.com/lefeck/ubuntu-autoinstaller/logger"
-
-	"github.com/sirupsen/logrus"
-
 	"os/exec"
 	"strings"
 	"time"
+
+	"github.com/lefeck/ubuntu-autoinstaller/logger"
 )
 
 // CmdOptions holds optional command execution parameters.
@@ -53,7 +50,6 @@ func (e *Executor) RunCmdWithAttempts(cmd interface{}, attempts int, timeout tim
 	options := &CmdOptions{}
 	options.ApplyOptions(opts)
 
-	ll := logger.Logger
 	var (
 		stdout string
 		stderr string
@@ -63,7 +59,7 @@ func (e *Executor) RunCmdWithAttempts(cmd interface{}, attempts int, timeout tim
 		if stdout, stderr, err := e.RunCmd(cmd); err == nil {
 			return stdout, stderr, err
 		}
-		ll.Warnf("Unable to execute cmd: %v. Attempt %d out of %d.", err, i, attempts)
+		logger.Warn(fmt.Sprintf("Unable to execute cmd: %v. Attempt %d out of %d.", err, i, attempts))
 		<-time.After(timeout)
 	}
 	errMsg := fmt.Errorf("failed to execute command after %d attempt, error: %v", attempts, err)
@@ -112,44 +108,11 @@ func (e *Executor) runCmdFromCmdObj(cmd *exec.Cmd) (outStr string, errStr string
 
 	outStr, errStr = stdout.String(), stderr.String()
 
-	// Only log command execution if enabled
-	if logger.Config.ShowCommandOutput {
-		// Construct log message based on command execution result, not stderr content
-		// Some commands (like gpg) output normal information to stderr
-		logFields := logrus.Fields{
-			"cmd":         strings.Join(cmd.Args, " "),
-			"duration":    cmdDuration.String(),
-			"duration_ns": cmdDuration.Nanoseconds(),
-		}
-
-		if err != nil {
-			// Command failed - log as ERROR
-			logger.Logger.WithFields(logFields).
-				Errorf("Command failed - stdout: %s, stderr: %s, error: %v", outStr, errStr, err)
-		} else {
-			// Command succeeded - log based on configured level
-			// Include stderr if present (some commands output normal info to stderr)
-			message := "Command executed successfully"
-			if len(outStr) > 0 || len(errStr) > 0 {
-				if len(errStr) > 0 {
-					message = fmt.Sprintf("stdout: %s, stderr: %s", outStr, errStr)
-				} else {
-					message = fmt.Sprintf("stdout: %s", outStr)
-				}
-			}
-
-			// Use configured log level for successful commands
-			switch logger.Config.CommandLogLevel {
-			case logrus.DebugLevel:
-				logger.Logger.WithFields(logFields).Debug(message)
-			case logrus.InfoLevel:
-				logger.Logger.WithFields(logFields).Info(message)
-			case logrus.WarnLevel:
-				logger.Logger.WithFields(logFields).Warn(message)
-			default:
-				logger.Logger.WithFields(logFields).Info(message)
-			}
-		}
+	// Log command execution only on error
+	cmdStr := strings.Join(cmd.Args, " ")
+	if err != nil {
+		logger.Error(fmt.Sprintf("Command failed - cmd: %s, duration: %s, stdout: %s, stderr: %s, error: %v",
+			cmdStr, cmdDuration.String(), outStr, errStr, err))
 	}
 	return outStr, errStr, err
 }

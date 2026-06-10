@@ -809,6 +809,91 @@
     }
 
     // =====================================================
+    //  Extract Archive (.zip / .tar.gz)
+    // =====================================================
+
+    function triggerExtractArchive() {
+        if (!currentFolder) {
+            alert('Please select a folder first.', 'error');
+            return;
+        }
+        var input = document.createElement('input');
+        input.type = 'file';
+        input.accept = '.zip,.tar,.tar.gz,.tgz';
+        input.onchange = function(e) {
+            var files = e.target.files;
+            if (files.length === 0) return;
+            uploadArchive(files[0]);
+        };
+        input.click();
+    }
+
+    function uploadArchive(file) {
+        var body = '<div class="upload-file-row" style="padding:8px 0;">' +
+            '<span class="upload-file-name">' + escapeHtml(file.name) + '</span>' +
+            '<span class="upload-file-size">' + formatSize(file.size) + '</span>' +
+            '</div>' +
+            '<div id="uploadProgress" style="margin-top:10px;font-size:13px;color:#666;"></div>';
+        var footer = '<button class="btn btn-secondary" id="uploadCancelBtn">Cancel</button>' +
+            '<button class="btn" id="uploadStartBtn">Extract Archive</button>';
+        openModal('Extract to /' + escapeHtml(currentFolder), body, footer, '520px');
+
+        document.getElementById('uploadStartBtn').onclick = function() {
+            this.disabled = true;
+            document.getElementById('uploadCancelBtn').disabled = true;
+            var progress = document.getElementById('uploadProgress');
+            progress.textContent = 'Uploading archive...';
+
+            var formData = new FormData();
+            formData.append('prefix', currentFolder);
+            formData.append('archive', file);
+
+            var xhr = new XMLHttpRequest();
+            xhr.open('POST', api() + '/embedded/extract-archive');
+            xhr.upload.onprogress = function(e) {
+                if (e.lengthComputable) {
+                    progress.textContent = 'Uploading: ' + Math.round(e.loaded / e.total * 100) + '%';
+                }
+            };
+            xhr.onload = function() {
+                if (xhr.status === 200) {
+                    var data = JSON.parse(xhr.responseText);
+                    if (data.success) {
+                        progress.textContent = 'Extracted ' + data.extracted + ' entries.';
+                        progress.style.color = '#28a745';
+                        setTimeout(function() {
+                            closeModal();
+                            loadFileBrowser(currentFolder, true);
+                            loadDirList();
+                        }, 500);
+                    } else {
+                        progress.textContent = 'Server error: ' + (data.error || data.lastError || 'unknown');
+                        progress.style.color = '#dc3545';
+                        document.getElementById('uploadStartBtn').disabled = false;
+                        document.getElementById('uploadCancelBtn').disabled = false;
+                    }
+                } else {
+                    progress.textContent = 'HTTP ' + xhr.status + ': ' + xhr.statusText;
+                    progress.style.color = '#dc3545';
+                    document.getElementById('uploadStartBtn').disabled = false;
+                    document.getElementById('uploadCancelBtn').disabled = false;
+                }
+            };
+            xhr.onerror = function() {
+                progress.textContent = 'Network error';
+                progress.style.color = '#dc3545';
+                document.getElementById('uploadStartBtn').disabled = false;
+                document.getElementById('uploadCancelBtn').disabled = false;
+            };
+            xhr.send(formData);
+        };
+
+        document.getElementById('uploadCancelBtn').onclick = function() {
+            closeModal();
+        };
+    }
+
+    // =====================================================
     //  New File
     // =====================================================
 
@@ -984,6 +1069,10 @@
 
         triggerUploadDir: function() {
             triggerUploadDir();
+        },
+
+        triggerExtractArchive: function() {
+            triggerExtractArchive();
         },
 
         uploadFileInDir: function() {

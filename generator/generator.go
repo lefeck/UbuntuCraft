@@ -102,7 +102,7 @@ func NewGenerator(executor *cmd.Executor, rootDir string) (*Generator, error) {
 			return nil, fmt.Errorf("failed to create directory %s: %w", dir, err)
 		}
 	}
-	logger.Infof("Using temporary directory: %s", rootDir)
+	logger.Info(fmt.Sprintf("Using temporary directory: %s", rootDir))
 	return &Generator{
 		executor: executor,
 		Path:     path,
@@ -120,7 +120,7 @@ func (g *Generator) checkNetwork() error {
 	logger.Info("Checking network connectivity...")
 	_, _, err := g.executor.RunCmdWithAttempts(PingCmdTemplate, 3, 5*time.Second)
 	if err != nil {
-		logger.Errorf("Network connectivity check failed: %v", err)
+		logger.Error(fmt.Sprintf("Network connectivity check failed: %v", err))
 		return fmt.Errorf("network connectivity check failed: %v", err)
 	}
 	logger.Info("Network connection is active")
@@ -131,7 +131,7 @@ func (g *Generator) updateSource() error {
 	logger.Info("Updating package list...")
 	_, _, err := g.executor.RunCmdWithAttempts(AptUpdateCmdTemplate, 3, 5*time.Second)
 	if err != nil {
-		logger.Errorf("Failed to update package list: %v", err)
+		logger.Error(fmt.Sprintf("Failed to update package list: %v", err))
 		return fmt.Errorf("Failed to update package list: %v", err)
 	}
 	return nil
@@ -143,11 +143,11 @@ func (g *Generator) ensurePackagesInstalled(pkg Package) error {
 		return fmt.Errorf("package %s not found", pkg)
 	}
 	if g.isExistPackage(info.Command) {
-		logger.Infof("Command %s already exists, skip installation", info.Command)
+		logger.Info(fmt.Sprintf("Command %s already exists, skip installation", info.Command))
 		return nil
 	}
 
-	logger.Infof("Command %s not found, attempting to install", info.Command)
+	logger.Info(fmt.Sprintf("Command %s not found, attempting to install", info.Command))
 
 	if err := g.updateSource(); err != nil {
 		return err
@@ -170,15 +170,15 @@ func (g *Generator) ensurePackagesInstalled(pkg Package) error {
 }
 
 func (g *Generator) installPackages(pkgs string) error {
-	logger.Infof("Installing packages: %s", pkgs)
+	logger.Info(fmt.Sprintf("Installing packages: %s", pkgs))
 	aptCmd := fmt.Sprintf(AptCmdTemplate, pkgs)
 	_, _, err := g.executor.RunCmdWithAttempts(aptCmd, 3, 5*time.Second)
 	if err != nil {
-		logger.Errorf("Package installation failed for %s: %v", pkgs, err)
+		logger.Error(fmt.Sprintf("Package installation failed for %s: %v", pkgs, err))
 		return fmt.Errorf("installation of package %s failed: %v", pkgs, err)
 	}
 
-	logger.Infof("Successfully installed packages: %s", pkgs)
+	logger.Info(fmt.Sprintf("Successfully installed packages: %s", pkgs))
 	return nil
 }
 
@@ -229,11 +229,11 @@ func (gen *Generator) DownloadImage(codename string, gpgVerify bool, progress fu
 	logger.Info("Checking for current release...")
 
 	// Fetch release page and extract ISO filename
-	logger.Infof("Fetching download page for Ubuntu %s...", codename)
+	logger.Info(fmt.Sprintf("Fetching download page for Ubuntu %s...", codename))
 	curlCmdTemplate := fmt.Sprintf(CurlCmdTemplate, codename)
 	stdout, _, err := gen.executor.RunCmd(curlCmdTemplate)
 	if err != nil {
-		logger.Errorf("Failed to fetch download page: %v", err)
+		logger.Error(fmt.Sprintf("Failed to fetch download page: %v", err))
 		return "", fmt.Errorf("failed to fetch download page: %w", err)
 	}
 
@@ -250,17 +250,17 @@ func (gen *Generator) DownloadImage(codename string, gpgVerify bool, progress fu
 
 	// Download if not exists, otherwise reuse local file
 	if _, err := os.Stat(imagePath); os.IsNotExist(err) {
-		logger.Infof("Downloading ISO image for Ubuntu %s %s...", version, codename)
+		logger.Info(fmt.Sprintf("Downloading ISO image for Ubuntu %s %s...", version, codename))
 		downloadURL := fmt.Sprintf("%s/%s", url, fileName)
-		logger.Infof("Downloading ISO image file %s", downloadURL)
+		logger.Info(fmt.Sprintf("Downloading ISO image file %s", downloadURL))
 		if err := utils.DownloadFileWithProgress(downloadURL, imagePath, progress, func(message string) {
-			logger.Info(message)
+			logger.Info("%s", message)
 		}); err != nil {
 			return "", fmt.Errorf("failed to download ISO: %w", err)
 		}
-		logger.Infof("Downloaded and saved to %s", imagePath)
+		logger.Info(fmt.Sprintf("Downloaded and saved to %s", imagePath))
 	} else {
-		logger.Infof("Using existing %s file", imagePath)
+		logger.Info(fmt.Sprintf("Using existing %s file", imagePath))
 		if gpgVerify {
 			downloadDir := gen.Path.DownloadDir()
 			if imagePath != filepath.Join(downloadDir, fileName) {
@@ -326,16 +326,16 @@ func (g *Generator) downloadSHA256Files(baseURL, shaSumsFile, shaSumsGPGFile str
 	if _, err := os.Stat(shaSumsFile); os.IsNotExist(err) {
 		logger.Info("Downloading SHA256SUMS & SHA256SUMS.gpg files...")
 		// Must use the same directory as ISO
-		logger.Infof("Downloading SHA256SUMS from: %s/SHA256SUMS", baseURL)
+		logger.Info(fmt.Sprintf("Downloading SHA256SUMS from: %s/SHA256SUMS", baseURL))
 		if err := utils.DownloadFile(fmt.Sprintf("%s/SHA256SUMS", baseURL), shaSumsFile); err != nil {
 			return fmt.Errorf("failed to download SHA256SUMS: %w", err)
 		}
-		logger.Infof("Downloading SHA256SUMS.gpg from: %s/SHA256SUMS.gpg", baseURL)
+		logger.Info(fmt.Sprintf("Downloading SHA256SUMS.gpg from: %s/SHA256SUMS.gpg", baseURL))
 		if err := utils.DownloadFile(fmt.Sprintf("%s/SHA256SUMS.gpg", baseURL), shaSumsGPGFile); err != nil {
 			return fmt.Errorf("failed to download SHA256SUMS.gpg: %w", err)
 		}
 	} else {
-		logger.Infof("Using existing SHA256SUMS & SHA256SUMS.gpg files")
+		logger.Info(fmt.Sprintf("Using existing SHA256SUMS & SHA256SUMS.gpg files"))
 	}
 	return nil
 }
@@ -347,20 +347,20 @@ func (g *Generator) downloadSigningKey(keyringFile string) error {
 		gpgRecvKeyCmdTemplate := fmt.Sprintf(GpgRecvKeyCmdTemplate, keyringFile, UbuntuGPGKeyID)
 		_, _, err := g.executor.RunCmd(gpgRecvKeyCmdTemplate)
 		if err != nil {
-			logger.Errorf("Failed to download Ubuntu signing key: %v", err)
+			logger.Error(fmt.Sprintf("Failed to download Ubuntu signing key: %v", err))
 			return fmt.Errorf("failed to download Ubuntu signing key: %w", err)
 		}
-		logger.Infof("Successfully downloaded and saved Ubuntu signing key to %s", keyringFile)
+		logger.Info(fmt.Sprintf("Successfully downloaded and saved Ubuntu signing key to %s", keyringFile))
 	} else {
-		logger.Infof("Using existing Ubuntu signing key saved in %s", keyringFile)
+		logger.Info(fmt.Sprintf("Using existing Ubuntu signing key saved in %s", keyringFile))
 	}
 	return nil
 }
 
 // verifyGPGSignature verifies the SHA256SUMS.gpg signature against the keyring.
 func (g *Generator) verifyGPGSignature(keyringFile, shaSumsGPGFile, shaSumsFile string) error {
-	logger.Infof("Verifying integrity and authenticity...")
-	logger.Infof("GPG command: gpg --keyring %s --verify %s %s", keyringFile, shaSumsGPGFile, shaSumsFile)
+	logger.Info(fmt.Sprintf("Verifying integrity and authenticity..."))
+	logger.Info(fmt.Sprintf("GPG command: gpg --keyring %s --verify %s %s", keyringFile, shaSumsGPGFile, shaSumsFile))
 
 	// Ensure required files exist
 	if _, err := os.Stat(keyringFile); os.IsNotExist(err) {
@@ -376,13 +376,13 @@ func (g *Generator) verifyGPGSignature(keyringFile, shaSumsGPGFile, shaSumsFile 
 	gpgVerifyCmdTemplate := fmt.Sprintf(GpgVerifyCmdTemplate, keyringFile, shaSumsGPGFile, shaSumsFile)
 	_, stderr, err := g.executor.RunCmd(gpgVerifyCmdTemplate)
 	if err != nil {
-		logger.Errorf("GPG signature verification failed: %v", err)
-		logger.Errorf("GPG stderr output: %s", stderr)
+		logger.Error(fmt.Sprintf("GPG signature verification failed: %v", err))
+		logger.Error(fmt.Sprintf("GPG stderr output: %s", stderr))
 		// Clean temporary keyring if present
 		tempKeyringFile := fmt.Sprintf("%s~", keyringFile)
 		if _, statErr := os.Stat(tempKeyringFile); statErr == nil {
 			if rmErr := os.Remove(tempKeyringFile); rmErr != nil {
-				logger.Warnf("Failed to remove temporary keyring file %s: %v", tempKeyringFile, rmErr)
+				logger.Warn(fmt.Sprintf("Failed to remove temporary keyring file %s: %v", tempKeyringFile, rmErr))
 			}
 		}
 		return fmt.Errorf("verification of SHA256SUMS signature failed: %v, stderr: %s", err, stderr)
@@ -394,7 +394,7 @@ func (g *Generator) verifyGPGSignature(keyringFile, shaSumsGPGFile, shaSumsFile 
 	tempKeyringFile := fmt.Sprintf("%s~", keyringFile)
 	if _, statErr := os.Stat(tempKeyringFile); statErr == nil {
 		if rmErr := os.Remove(tempKeyringFile); rmErr != nil {
-			logger.Warnf("Failed to remove temporary keyring file %s: %v", tempKeyringFile, rmErr)
+			logger.Warn(fmt.Sprintf("Failed to remove temporary keyring file %s: %v", tempKeyringFile, rmErr))
 		}
 	}
 	return nil
@@ -431,17 +431,17 @@ func (gen *Generator) ExtractISO(codename string, sourceISO string) error {
 
 	// Backup packages directory contents
 	if err := backupDirContents(packagesDir, packagesFiles); err != nil {
-		logger.Warnf("Failed to backup packages directory: %v", err)
+		logger.Warn(fmt.Sprintf("Failed to backup packages directory: %v", err))
 	}
 
 	// Backup scripts directory contents
 	if err := backupDirContents(scriptsDir, scriptsFiles); err != nil {
-		logger.Warnf("Failed to backup scripts directory: %v", err)
+		logger.Warn(fmt.Sprintf("Failed to backup scripts directory: %v", err))
 	}
 
 	// Clean up build directory before extraction to ensure fresh state
 	if err := os.RemoveAll(buildDir); err != nil {
-		logger.Warnf("Failed to clean build directory: %v", err)
+		logger.Warn(fmt.Sprintf("Failed to clean build directory: %v", err))
 	}
 	if err := os.MkdirAll(buildDir, DefaultDirPerm); err != nil {
 		return fmt.Errorf("failed to create build directory: %w", err)
@@ -457,10 +457,10 @@ func (gen *Generator) ExtractISO(codename string, sourceISO string) error {
 
 	// Restore backed up files
 	if err := restoreDirContents(packagesDir, packagesFiles); err != nil {
-		logger.Warnf("Failed to restore packages directory: %v", err)
+		logger.Warn(fmt.Sprintf("Failed to restore packages directory: %v", err))
 	}
 	if err := restoreDirContents(scriptsDir, scriptsFiles); err != nil {
-		logger.Warnf("Failed to restore scripts directory: %v", err)
+		logger.Warn(fmt.Sprintf("Failed to restore scripts directory: %v", err))
 	}
 
 	// Choose extractor by codename
@@ -476,7 +476,7 @@ func (gen *Generator) ExtractISO(codename string, sourceISO string) error {
 		return err
 	}
 
-	logger.Infof("Extracted to %s", buildDir)
+	logger.Info(fmt.Sprintf("Extracted to %s", buildDir))
 	return nil
 }
 
@@ -530,17 +530,16 @@ func (g *Generator) extractISOImage(codename string, sourceISO string) error {
 		xorrisoCmd := fmt.Sprintf(XorrisoCmdTemplate, sourceISO, buidDir)
 		_, _, err := g.executor.RunCmd(xorrisoCmd)
 		if err != nil {
-			logger.Errorf("Failed to extract ISO using xorriso: %v", err)
+			logger.Error(fmt.Sprintf("Failed to extract ISO using xorriso: %v", err))
 			return fmt.Errorf("failed to extract ISO image using xorriso: %w", err)
 		}
 		logger.Info("Successfully extracted ISO using xorriso")
 	default:
 		logger.Info("Extracting ISO using 7z...")
 		s7zCmd := fmt.Sprintf(S7zCmdTemplate, sourceISO, buidDir)
-		fmt.Println(s7zCmd)
 		_, _, err := g.executor.RunCmd(s7zCmd)
 		if err != nil {
-			logger.Errorf("Failed to extract ISO using 7z: %v", err)
+			logger.Error(fmt.Sprintf("Failed to extract ISO using 7z: %v", err))
 			return fmt.Errorf("failed to extract ISO image using 7z: %w", err)
 		}
 		logger.Info("Successfully extracted ISO using 7z")
@@ -564,7 +563,7 @@ func (gen *Generator) cleanupAndMoveFiles(codename string, boot string) error {
 			}
 		}
 		if _, err := os.Stat(bootISO); !os.IsNotExist(err) {
-			logger.Infof("Moving [BOOT] from %s to %s", bootISO, boot)
+			logger.Info(fmt.Sprintf("Moving [BOOT] from %s to %s", bootISO, boot))
 			if err := os.Rename(bootISO, boot); err != nil {
 				return fmt.Errorf("failed to move [BOOT] to bootDir: %w", err)
 			}
@@ -626,14 +625,14 @@ func (gen *Generator) RepackageISOImage(codename string, volumeID string, destin
 		return fmt.Errorf("failed to build xorriso command: %w", err)
 	}
 
-	logger.Infof("Executing xorriso to create final ISO: %s", cmdStr)
+	logger.Info(fmt.Sprintf("Executing xorriso to create final ISO: %s", cmdStr))
 	stdout, stderr, err := gen.executor.RunCmd(cmdObj)
 	if err != nil {
-		logger.Errorf("xorriso command failed: %v, stdout: %s, stderr: %s", err, stdout, stderr)
+		logger.Error(fmt.Sprintf("xorriso command failed: %v, stdout: %s, stderr: %s", err, stdout, stderr))
 		return fmt.Errorf("xorriso failed: %w; stderr: %s", err, strings.TrimSpace(stderr))
 	}
 
-	logger.Infof("Successfully repackaged into ISO: %s", destinationISOFile)
+	logger.Info(fmt.Sprintf("Successfully repackaged into ISO: %s", destinationISOFile))
 	return nil
 }
 
@@ -718,10 +717,10 @@ func formatCommandForLog(args []string) string {
 func (gen *Generator) CleanUp() error {
 	buildDir := gen.Path.BuildDir()
 	if err := os.RemoveAll(buildDir); err != nil {
-		logger.Warnf("Failed to clean up temporary directory %s: %v", buildDir, err)
+		logger.Warn(fmt.Sprintf("Failed to clean up temporary directory %s: %v", buildDir, err))
 		return fmt.Errorf("Failed to clean up temporary directory: %v", err)
 	}
-	logger.Infof("Successfully cleaned up temporary directory: %s", buildDir)
+	logger.Info(fmt.Sprintf("Successfully cleaned up temporary directory: %s", buildDir))
 	return nil
 }
 
@@ -770,8 +769,7 @@ func (gen *Generator) InjectEmbeddedFiles(files []config.EmbeddedFile) error {
 		return nil
 	}
 
-	logger.Infof("Injecting %d embedded file(s) into ISO...", len(files))
-
+	logger.Info(fmt.Sprintf("Injecting %d embedded file(s) into ISO...", len(files)))
 	for _, f := range files {
 		// Build absolute target path: <builddir>/mnt/<path>
 		targetPath := filepath.Join(gen.Path.Mount(), f.Path)
@@ -813,8 +811,7 @@ func (gen *Generator) InjectEmbeddedFiles(files []config.EmbeddedFile) error {
 			return fmt.Errorf("failed to set permissions on %s: %w", f.Path, err)
 		}
 
-		logger.Infof("  injected: %s (perm=%s, encoding=%s, size=%d bytes)", f.Path, permStr, f.Encoding, len(fileContent))
-	}
+		logger.Info(fmt.Sprintf("  injected: %s (perm=%s, encoding=%s, size=%d bytes)", f.Path, permStr, f.Encoding, len(fileContent)))	}
 
 	logger.Info("Successfully injected all embedded files")
 	return nil
@@ -874,11 +871,11 @@ func (gen *Generator) parsePackageFile(packages []string) ([]string, error) {
 func (gen *Generator) downloadPackages(packages []string) error {
 	pkgDir := gen.Path.Packages()
 	for _, pkg := range packages {
-		logger.Infof("Downloading and saving packages %s", pkg)
+		logger.Info(fmt.Sprintf("Downloading and saving packages %s", pkg))
 		if err := gen.downloadPackage(pkgDir, pkg); err != nil {
 			return fmt.Errorf("failed to download package %s: %w", pkg, err)
 		}
-		logger.Infof("Downloaded and saved all packages to %s/%s", pkgDir, pkg)
+		logger.Info(fmt.Sprintf("Downloaded and saved all packages to %s/%s", pkgDir, pkg))
 	}
 	return nil
 }
@@ -1000,7 +997,7 @@ func (g *Generator) downloadPackage(destDir, pkg string) error {
 		return err
 	}
 	if len(deps) == 0 {
-		logger.Warnf("No dependencies found for %s", pkg)
+		logger.Warn(fmt.Sprintf("No dependencies found for %s", pkg))
 		return nil
 	}
 
@@ -1017,24 +1014,24 @@ func (g *Generator) downloadPackage(destDir, pkg string) error {
 
 // resolveDependencies resolves package dependencies using apt-cache, and falls back to aptitude if needed.
 func (g *Generator) resolveDependencies(pkg string) ([]string, error) {
-	logger.Infof("Resolving dependencies for package: %s", pkg)
+	logger.Info(fmt.Sprintf("Resolving dependencies for package: %s", pkg))
 	// Try apt-cache first
 	aptCacheCmd := fmt.Sprintf(AptCacheDependsCmdTemplate, pkg)
 	out, _, err := g.executor.RunCmd(aptCacheCmd)
 	if err != nil || strings.TrimSpace(out) == "" {
 		// Fallback: aptitude
-		logger.Infof("apt-cache failed, trying aptitude for package: %s", pkg)
+		logger.Info(fmt.Sprintf("apt-cache failed, trying aptitude for package: %s", pkg))
 		fallbackCmd := fmt.Sprintf(AptitudeShowCmd, pkg)
 		out, _, err = g.executor.RunCmd(fallbackCmd)
 		if err != nil {
-			logger.Errorf("Failed to resolve dependencies for %s: %v", pkg, err)
+			logger.Error(fmt.Sprintf("Failed to resolve dependencies for %s: %v", pkg, err))
 			return nil, fmt.Errorf("failed to resolve dependencies for %s: %w", pkg, err)
 		}
 	}
 
 	// Parse and filter dependencies
 	deps := filterDependencies(out)
-	logger.Infof("Resolved %d dependencies for package: %s", len(deps), pkg)
+	logger.Info(fmt.Sprintf("Resolved %d dependencies for package: %s", len(deps), pkg))
 	return deps, nil
 }
 
@@ -1056,15 +1053,15 @@ func filterDependencies(raw string) []string {
 
 // downloadDependencies downloads each dependency using apt-get.
 func (g *Generator) downloadDependencies(deps []string) {
-	logger.Infof("Downloading %d dependencies...", len(deps))
+	logger.Info(fmt.Sprintf("Downloading %d dependencies...", len(deps)))
 	for _, dep := range deps {
 		downloadCmd := fmt.Sprintf(AptGetDownloadCmd, dep)
 		_, _, err := g.executor.RunCmd(downloadCmd)
 		if err != nil {
-			logger.Warnf("Failed to download dependency %s: %v", dep, err)
+			logger.Warn(fmt.Sprintf("Failed to download dependency %s: %v", dep, err))
 			continue
 		}
-		logger.Infof("Successfully downloaded dependency: %s", dep)
+		logger.Info(fmt.Sprintf("Successfully downloaded dependency: %s", dep))
 	}
 	logger.Info("Completed downloading dependencies")
 }
@@ -1095,7 +1092,7 @@ func changeDir(dir string) (func(), error) {
 
 	return func() {
 		if err := os.Chdir(cwd); err != nil {
-			logger.Warnf("failed to revert to original directory: %v", err)
+			logger.Warn(fmt.Sprintf("failed to revert to original directory: %v", err))
 		}
 	}, nil
 }
@@ -1114,20 +1111,20 @@ func (gen *Generator) buildPackagesIndex() error {
 	logger.Info("Running dpkg-scanpackages to generate package index...")
 	stdout, _, err := gen.executor.RunCmd(DpkgScanpackagesCmdTemplate)
 	if err != nil {
-		logger.Errorf("dpkg-scanpackages failed: %v", err)
+		logger.Error(fmt.Sprintf("dpkg-scanpackages failed: %v", err))
 		return fmt.Errorf("dpkg-scanpackages error: %v", err)
 	}
 
 	pkgFile := "Packages"
 	if err = os.WriteFile(pkgFile, []byte(stdout), 0644); err != nil {
-		logger.Errorf("Failed to write Packages file: %v", err)
+		logger.Error(fmt.Sprintf("Failed to write Packages file: %v", err))
 		return fmt.Errorf("write Packages failed: %w", err)
 	}
 
 	// Compress to Packages.gz
 	logger.Info("Compressing package index to Packages.gz...")
 	if err = writeGzip(pkgFile, "Packages.gz"); err != nil {
-		logger.Errorf("Failed to compress package index: %v", err)
+		logger.Error(fmt.Sprintf("Failed to compress package index: %v", err))
 		return fmt.Errorf("gzip failed: %w", err)
 	}
 

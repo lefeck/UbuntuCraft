@@ -582,6 +582,9 @@ async function loadDefaultConfig() {
         const result = await response.json();
 
         if (!result.success || !result.config) {
+            if (window.showToast) {
+                window.showToast(result.error || 'Failed to load default configuration', 'error');
+            }
             showStatus('configActionStatus', 'error', result.error || 'Failed to load default configuration');
             return;
         }
@@ -609,6 +612,9 @@ async function loadDefaultConfig() {
         const parseResult = await parseResp.json();
 
         if (!parseResult.success || !parseResult.config) {
+            if (window.showToast) {
+                window.showToast(parseResult.error || 'Failed to parse default configuration', 'error');
+            }
             showStatus('configActionStatus', 'error', parseResult.error || 'Failed to parse default configuration');
             return;
         }
@@ -630,15 +636,14 @@ async function loadDefaultConfig() {
         }
         await window.TemplatesManager.applyAutoinstallConfigToUI(auto);
 
+        if (window.showToast) {
+            window.showToast('Default configuration loaded successfully', 'success');
+        }
         showStatus('configActionStatus', 'success', 'Default configuration loaded successfully');
-        if (typeof showNotification === 'function') {
-            showNotification('Default template loaded successfully!', 'success');
-        }
-
-        if (typeof AppNavigation !== 'undefined') {
-            AppNavigation.switchPage('config');
-        }
     } catch (error) {
+        if (window.showToast) {
+            window.showToast('Failed to load default configuration: ' + error.message, 'error');
+        }
         showStatus('configActionStatus', 'error', 'Failed to load default configuration: ' + error.message);
     }
 }
@@ -1192,6 +1197,10 @@ async function validateConfig() {
         try {
             const result = await response.json();
             console.log('Response Body:', result);
+            // Show toast notification
+            if (window.showToast) {
+                window.showToast(result.message || result.error || (result.success ? 'Configuration is valid' : 'Validation failed'), result.success ? 'success' : 'error');
+            }
             showStatus('configActionStatus', result.success ? 'success' : 'error', result.message || result.error);
             return { valid: !!result.success, errors: result.success ? [] : [result.message || result.error || 'Validation failed'] };
         } catch (parseError) {
@@ -1200,9 +1209,15 @@ async function validateConfig() {
             console.log('Response parsing failed, using local validation');
             const localValidationResult = validateConfigLocally(config);
             if (localValidationResult.valid) {
+                if (window.showToast) {
+                    window.showToast('Configuration is valid (local validation)', 'success');
+                }
                 showStatus('configActionStatus', 'success', 'Configuration is valid (local validation)');
                 return { valid: true, errors: [] };
             } else {
+                if (window.showToast) {
+                    window.showToast(localValidationResult.errors.join(', '), 'error');
+                }
                 showStatus('configActionStatus', 'error', `Configuration validation failed: ${localValidationResult.errors.join(', ')}`);
                 return { valid: false, errors: localValidationResult.errors };
             }
@@ -1214,9 +1229,15 @@ async function validateConfig() {
         console.log('API validation error, using local validation');
         const localValidationResult = validateConfigLocally(config);
         if (localValidationResult.valid) {
+            if (window.showToast) {
+                window.showToast('Configuration is valid (local validation)', 'success');
+            }
             showStatus('configActionStatus', 'success', 'Configuration is valid (local validation)');
             return { valid: true, errors: [] };
         } else {
+            if (window.showToast) {
+                window.showToast(localValidationResult.errors.join(', '), 'error');
+            }
             showStatus('configActionStatus', 'error', `Configuration validation failed: ${localValidationResult.errors.join(', ')}`);
             return { valid: false, errors: localValidationResult.errors };
         }
@@ -1387,14 +1408,24 @@ async function previewUserData() {
         if (result.success) {
             // Display YAML configuration content
             const previewElement = document.getElementById('configPreview');
+            const previewPanel = previewElement?.closest('.preview-panel');
             if (previewElement) {
                 previewElement.textContent = result["user-data"] || result.userData || result.preview || 'Configuration preview generated';
                 previewElement.style.display = 'block';
+                previewPanel?.classList.add('has-content');
+            }
+            if (window.showToast) {
+                window.showToast('Configuration preview generated successfully', 'success');
             }
             showStatus('configStatus', 'success', 'Configuration preview generated successfully');
+            document.getElementById('userdataActions').style.display = 'block';
             if (window.AppNavigation) window.AppNavigation.switchPage('preview');
         } else {
+            if (window.showToast) {
+                window.showToast(result.error || 'Configuration preview failed', 'error');
+            }
             showStatus('configStatus', 'error', result.error || 'Configuration preview failed');
+            document.getElementById('userdataActions').style.display = 'none';
         }
     } catch (error) {
         console.error('Configuration preview error:', error);
@@ -1410,8 +1441,13 @@ async function previewUserData() {
 function createLocalConfigPreview(config) {
     try {
         const previewElement = document.getElementById('configPreview');
+        const previewPanel = previewElement?.closest('.preview-panel');
         if (!previewElement) {
+            if (window.showToast) {
+                window.showToast('Preview element not found', 'error');
+            }
             showStatus('configStatus', 'error', 'Preview element not found');
+            document.getElementById('userdataActions').style.display = 'none';
             return;
         }
         
@@ -1750,12 +1786,21 @@ function createLocalConfigPreview(config) {
         // Display preview content
         previewElement.textContent = previewContent;
         previewElement.style.display = 'block';
+        previewPanel?.classList.add('has-content');
+        if (window.showToast) {
+            window.showToast('Local configuration preview generated', 'success');
+        }
         showStatus('configStatus', 'success', 'Local configuration preview generated');
+        document.getElementById('userdataActions').style.display = 'block';
         if (window.AppNavigation) window.AppNavigation.switchPage('preview');
 
     } catch (error) {
         console.error('Local preview generation error:', error);
+        if (window.showToast) {
+            window.showToast('Failed to generate local configuration preview', 'error');
+        }
         showStatus('configStatus', 'error', 'Failed to generate local configuration preview');
+        document.getElementById('userdataActions').style.display = 'none';
     }
 }
 
@@ -2487,22 +2532,33 @@ async function generateUserDataInternal(continueToIso = false) {
             
             // Also display YAML content in configuration preview area
             const previewElement = document.getElementById('configPreview');
+            const previewPanel = previewElement?.closest('.preview-panel');
             if (previewElement) {
                 previewElement.textContent = generatedUserData;
                 previewElement.style.display = 'block';
+                previewPanel?.classList.add('has-content');
             }
             
+            if (window.showToast) {
+                window.showToast(continueToIso ? 'User data generated successfully. Continuing to ISO Builder...' : 'User data configuration generated successfully', 'success');
+            }
             showStatus('userdataStatus', 'success', continueToIso ? 'User data generated successfully. Continuing to ISO Builder...' : 'User data configuration generated successfully');
             if (window.AppNavigation) {
                 window.AppNavigation.switchPage(continueToIso ? 'iso' : 'preview');
             }
             return { valid: true, userData: generatedUserData };
         } else {
+            if (window.showToast) {
+                window.showToast(result.error || 'User data generation failed', 'error');
+            }
             showStatus('userdataStatus', 'error', result.error || 'User data generation failed');
             return { valid: false, errors: [result.error || 'User data generation failed'] };
         }
     } catch (error) {
         console.error('User data generation error:', error);
+        if (window.showToast) {
+            window.showToast('User data generation failed: ' + error.message, 'error');
+        }
         showStatus('userdataStatus', 'error', 'User data generation failed: ' + error.message);
         return { valid: false, errors: [error.message] };
     }
@@ -2631,7 +2687,12 @@ function validateBasicRequired(statusId) {
             hostname: 'Hostname is required'
         };
         const messages = missing.map(k => msgMap[k] || (k + ' is required'));
-        showStatus(statusId, 'error', 'Basic validation failed: ' + messages.join(', '));
+        // Show toast notification only
+        if (window.showToast) {
+            window.showToast(messages.join(', '), 'error');
+        } else {
+            showStatus(statusId, 'error', messages.join(', '));
+        }
         return false;
     }
     return true;
@@ -2694,7 +2755,12 @@ function validateAptRequired(statusId) {
             }
         }, 50);
 
-        showStatus(statusId, 'error', 'APT validation failed: ' + errors.join(', '));
+        // Show toast notification only
+        if (window.showToast) {
+            window.showToast(errors.join(', '), 'error');
+        } else {
+            showStatus(statusId, 'error', errors.join(', '));
+        }
         return false;
     }
     return true;

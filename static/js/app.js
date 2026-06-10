@@ -7,7 +7,8 @@
 let appState = {
     initialized: false,
     currentTab: 'basic',
-    configValid: false
+    configValid: false,
+    initInProgress: false
 };
 
 /**
@@ -22,6 +23,9 @@ async function initApp() {
             document.addEventListener('DOMContentLoaded', initApp);
             return;
         }
+        
+        // Mark init as in progress to prevent unwanted page switches
+        appState.initInProgress = true;
         
         // Initialize UI utilities first
         if (window.UIUtils) {
@@ -45,8 +49,14 @@ async function initApp() {
         // Load default configuration (depends on DOM elements from above)
         await loadDefaultConfiguration();
 
+        // Initialize System Info (load immediately for the default page)
+        if (window.SystemInfoManager) {
+            window.SystemInfoManager.init();
+        }
+
         // Mark as initialized
         appState.initialized = true;
+        appState.initInProgress = false;
         
         console.log('UbuntuCraft application initialized successfully');
         
@@ -385,7 +395,9 @@ function handleWindowResize() {
  * Show success message
  */
 function showSuccess(message) {
-    if (window.UIUtils && window.UIUtils.showAlert) {
+    if (window.showToast) {
+        window.showToast(message, 'success');
+    } else if (window.UIUtils && window.UIUtils.showAlert) {
         window.UIUtils.showAlert(message, 'success');
     } else {
         console.log('Success:', message);
@@ -396,7 +408,9 @@ function showSuccess(message) {
  * Show error message
  */
 function showError(message) {
-    if (window.UIUtils && window.UIUtils.showAlert) {
+    if (window.showToast) {
+        window.showToast(message, 'error');
+    } else if (window.UIUtils && window.UIUtils.showAlert) {
         window.UIUtils.showAlert(message, 'error');
     } else {
         console.error('Error:', message);
@@ -407,12 +421,50 @@ function showError(message) {
  * Show info message
  */
 function showInfo(message) {
-    if (window.UIUtils && window.UIUtils.showAlert) {
+    if (window.showToast) {
+        window.showToast(message, 'info');
+    } else if (window.UIUtils && window.UIUtils.showAlert) {
         window.UIUtils.showAlert(message, 'info');
     } else {
         console.log('Info:', message);
     }
 }
+
+// Toast Notifications
+function showToast(message, type = 'info', duration = 3000) {
+    const container = document.getElementById('toastContainer');
+    if (!container) return;
+
+    const toast = document.createElement('div');
+    toast.className = `toast toast-${type}`;
+    toast.innerHTML = `
+        <span class="toast-icon">${getToastIcon(type)}</span>
+        <span class="toast-message">${message}</span>
+    `;
+    container.appendChild(toast);
+
+    setTimeout(() => {
+        toast.classList.add('toast-show');
+    }, 10);
+
+    setTimeout(() => {
+        toast.classList.remove('toast-show');
+        setTimeout(() => toast.remove(), 300);
+    }, duration);
+}
+
+function getToastIcon(type) {
+    switch (type) {
+        case 'success': return '✓';
+        case 'error': return '✕';
+        case 'warning': return '⚠';
+        case 'info': return 'ℹ';
+        default: return 'ℹ';
+    }
+}
+
+// Export for use in other modules
+window.showToast = showToast;
 
 /**
  * Debounce function
@@ -484,6 +536,11 @@ window.UbuntuCraft = {
 // Page-level navigation
 var AppNavigation = {
     switchPage: function(page) {
+        // Skip page switches during initialization (except system-info which is the default)
+        if (appState.initInProgress && page !== 'system-info') {
+            return;
+        }
+        
         console.log('AppNavigation.switchPage called with:', page);
         var pages = document.querySelectorAll('.content-page');
         pages.forEach(function(p) { p.classList.remove('active'); });
@@ -500,6 +557,14 @@ var AppNavigation = {
         if (page === 'templates') {
             console.log('Switching to templates page, calling loadTemplatesPage()');
             loadTemplatesPage();
+        }
+
+        // Initialize system info page when switching
+        if (page === 'system-info') {
+            console.log('Switching to system-info page');
+            if (window.SystemInfoManager) {
+                window.SystemInfoManager.init();
+            }
         }
     }
 };

@@ -38,7 +38,7 @@ func New(handler *api.Handler, cfg *ConfigInfo) (*Server, error) {
 	gin.SetMode(cfg.Mode)
 	engine := gin.New()
 	engine.Use(
-		gin.LoggerWithWriter(logger.AccessLogWriter),
+		middleware.GinLogger(os.Stdout),
 		gin.Recovery(),
 		middleware.CORSMiddleware(),
 	)
@@ -70,6 +70,9 @@ func (s *Server) Routes() {
 	api.POST("/config/load", s.handler.LoadConfigFromYAML)
 	api.POST("/config/validate", s.handler.ValidateConfig)
 
+	// Host info endpoint
+	api.GET("/host/info", s.handler.GetHostInfo)
+
 	// user-data endpoints
 	api.POST("/userdata/generate", s.handler.GenerateUserData)
 	api.POST("/userdata/preview", s.handler.PreviewUserData)
@@ -85,6 +88,7 @@ func (s *Server) Routes() {
 	api.GET("/embedded/read", s.handler.ReadEmbeddedFile)
 	api.GET("/embedded/dir", s.handler.ListDirectory)
 	api.POST("/embedded/mkdir", s.handler.MkdirEmbedded)
+	api.POST("/embedded/extract-archive", s.handler.ExtractArchive)
 
 	// Build status endpoints
 	api.GET("/build/status/:id", s.handler.GetBuildStatus)
@@ -113,7 +117,7 @@ func (s *Server) Run() error {
 
 	go func() {
 		if err := server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
-			logger.Fatalf("ListenAndServe: %v", err)
+			logger.Fatal(fmt.Sprintf("ListenAndServe: %v", err))
 		}
 	}()
 
@@ -124,7 +128,7 @@ func (s *Server) Run() error {
 
 	defer cancel()
 	ch := <-sig
-	logger.Infof("Shutting down server with signal: %s", ch)
+	logger.Info(fmt.Sprintf("Shutting down server with signal: %s", ch))
 	return server.Shutdown(ctx)
 }
 

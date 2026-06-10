@@ -13,6 +13,7 @@ function previewUserData() {
 
         // Show configuration preview
         const configPreview = document.getElementById('configPreview');
+        const previewPanel = configPreview?.closest('.preview-panel');
 
         if (configPreview) {
             // Format JSON and display (escape HTML for security)
@@ -22,6 +23,7 @@ function previewUserData() {
                 .replace(/>/g, '&gt;');
             configPreview.innerHTML = `<pre>${escapedJson}</pre>`;
             configPreview.style.display = 'block';
+            previewPanel?.classList.add('has-content');
         }
 
         // Update status using the action status element

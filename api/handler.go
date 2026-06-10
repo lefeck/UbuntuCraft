@@ -1,11 +1,18 @@
 package api
 
 import (
+	"archive/tar"
+	"archive/zip"
+	"bufio"
+	"bytes"
+	"compress/gzip"
 	"encoding/base64"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"time"
 
@@ -18,6 +25,39 @@ import (
 
 	"github.com/gin-gonic/gin"
 )
+
+// HostInfo represents the host system information
+type HostInfo struct {
+	OS       OSInfo       `json:"os"`
+	Platform PlatformInfo `json:"platform"`
+	Kernel   KernelInfo   `json:"kernel"`
+	Runtime  RuntimeInfo  `json:"runtime"`
+}
+
+// OSInfo contains operating system details
+type OSInfo struct {
+	PrettyName string `json:"prettyName"`
+	Name       string `json:"name"`
+	Version    string `json:"version"`
+	Codename   string `json:"codename"`
+}
+
+// PlatformInfo contains platform details
+type PlatformInfo struct {
+	OS   string `json:"os"`
+	Arch string `json:"arch"`
+}
+
+// KernelInfo contains kernel details
+type KernelInfo struct {
+	Release string `json:"release"`
+}
+
+// RuntimeInfo contains runtime details
+type RuntimeInfo struct {
+	GoVersion string `json:"goVersion"`
+	GoArch    string `json:"goArch"`
+}
 
 // Handler
 type Handler struct {
@@ -45,11 +85,11 @@ type BuildStatus struct {
 func NewHandler() *Handler {
 	dir, err := os.MkdirTemp("", "tmp.")
 	if err != nil {
-		logger.Fatalf("Failed to create temporary directory: %v", err)
+		logger.Fatal(fmt.Sprintf("Failed to create temporary directory: %v", err))
 	}
 	executor, err := generator.NewGenerator(&cmd.Executor{}, dir)
 	if err != nil {
-		logger.Error("Failed to create executor: %v", err)
+		logger.Error(fmt.Sprintf("Failed to create executor: %v", err))
 	}
 	return &Handler{
 		userDataGen: generator.NewUserDataGenerator(),
@@ -379,37 +419,37 @@ func (h *Handler) GenerateISO(c *gin.Context) {
 			if _, err := os.Stat(downloadPath); err == nil {
 				// File is in download directory
 				buildStatus.Output = downloadPath
-				logger.Infof("Found ISO file at: %s", downloadPath)
+				logger.Info(fmt.Sprintf("Found ISO file at: %s", downloadPath))
 			} else if filepath.IsAbs(request.DestinationISO) && fileExists(request.DestinationISO) {
 				// Use absolute path
 				buildStatus.Output = request.DestinationISO
-				logger.Infof("Using absolute path: %s", request.DestinationISO)
+				logger.Info(fmt.Sprintf("Using absolute path: %s", request.DestinationISO))
 			} else {
 				// Try to find in current directory
 				absPath, err := filepath.Abs(request.DestinationISO)
 				if err == nil && fileExists(absPath) {
 					buildStatus.Output = absPath
-					logger.Infof("Using file in current directory: %s", absPath)
+					logger.Info(fmt.Sprintf("Using file in current directory: %s", absPath))
 				} else {
 					// Finally try to find in working directory
 					workingDir, _ := os.Getwd()
 					workingPath := filepath.Join(workingDir, request.DestinationISO)
 					if fileExists(workingPath) {
 						buildStatus.Output = workingPath
-						logger.Infof("Using file in working directory: %s", workingPath)
+						logger.Info(fmt.Sprintf("Using file in working directory: %s", workingPath))
 					} else {
 						// File not found, record all attempted paths
-						logger.Warnf("Could not find ISO file at any of these locations:")
-						logger.Warnf("- %s", downloadPath)
-						logger.Warnf("- %s", request.DestinationISO)
-						logger.Warnf("- %s", absPath)
-						logger.Warnf("- %s", workingPath)
+						logger.Warn(fmt.Sprintf("Could not find ISO file at any of these locations:"))
+						logger.Warn(fmt.Sprintf("- %s", downloadPath))
+						logger.Warn(fmt.Sprintf("- %s", request.DestinationISO))
+						logger.Warn(fmt.Sprintf("- %s", absPath))
+						logger.Warn(fmt.Sprintf("- %s", workingPath))
 						buildStatus.Output = downloadPath // Use most likely path
 					}
 				}
 			}
 
-			buildStatus.Logs = append(buildStatus.Logs, "✅ ISO generation completed successfully!")
+			buildStatus.Logs = append(buildStatus.Logs, "ISO generation completed successfully!")
 		}
 	}()
 
@@ -465,7 +505,7 @@ func (h *Handler) uploadISO(c *gin.Context) (string, error) {
 func (h *Handler) UploadISO(c *gin.Context) {
 	dst, err := h.uploadISO(c)
 	if err != nil {
-		logger.Error("ISO upload failed: ", err)
+		logger.Error(fmt.Sprintf("ISO upload failed: ", err))
 		c.JSON(http.StatusBadRequest, gin.H{
 			"error": err.Error(),
 		})
@@ -508,11 +548,11 @@ func (h *Handler) buildProcessWithStatus(request *GenerateISORequest, status *Bu
 
 	// Step 1: Preprocessing - Create temporary directory and check packages
 	status.Steps["prepare"] = "running"
-	status.Logs = append(status.Logs, "📁 Preparing installation environment...")
+	status.Logs = append(status.Logs, "Preparing installation environment...")
 	if err := h.generator.PrepareEnvironment(request.CodeName); err != nil {
 		return fmt.Errorf("preprocessing failed: %w", err)
 	}
-	updateProgress(10, "prepare", "✅ Installation environment ready")
+	updateProgress(10, "prepare", "Installation environment ready")
 
 	var localImagePath string
 	var imageMeta *utils.ImageMeta
@@ -522,7 +562,7 @@ func (h *Handler) buildProcessWithStatus(request *GenerateISORequest, status *Bu
 	switch request.SourceType {
 	case "download":
 		status.Steps["download"] = "running"
-		status.Logs = append(status.Logs, "🌎 Downloading ISO Image...")
+		status.Logs = append(status.Logs, "Downloading ISO Image...")
 		lastLoggedPercent := -1
 		localImagePath, err = h.generator.DownloadISOImage(request.CodeName, request.GPGVerify, func(download utils.DownloadProgress) {
 			mappedProgress := 10
@@ -542,13 +582,13 @@ func (h *Handler) buildProcessWithStatus(request *GenerateISORequest, status *Bu
 			percentInt := int(download.Percent)
 			if percentInt != lastLoggedPercent && percentInt%5 == 0 {
 				lastLoggedPercent = percentInt
-				status.Logs = append(status.Logs, fmt.Sprintf("🌎 Downloading ISO Image... %.1f%%", download.Percent))
+				status.Logs = append(status.Logs, fmt.Sprintf("Downloading ISO Image... %.1f%%", download.Percent))
 			}
 		})
 		if err != nil {
 			return fmt.Errorf("ISO download failed: %w", err)
 		}
-		updateProgress(30, "download", "✅ ISO downloaded successfully")
+		updateProgress(30, "download", "ISO downloaded successfully")
 		status.DownloadPercent = 100
 		status.DownloadDisplayText = fmt.Sprintf("100.0%% · %s / %s", utils.FormatBytes(status.DownloadBytes), utils.FormatBytes(status.DownloadTotalBytes))
 
@@ -559,16 +599,16 @@ func (h *Handler) buildProcessWithStatus(request *GenerateISORequest, status *Bu
 
 		if request.GPGVerify {
 			status.Steps["verify"] = "running"
-			status.Logs = append(status.Logs, "🔐 Verifying ISO (GPG)...")
+			status.Logs = append(status.Logs, "Verifying ISO (GPG)...")
 			if err := h.generator.VerifyISO(request.GPGVerify, localImagePath, request.CodeName); err != nil {
 				return fmt.Errorf("ISO verification failed: %w", err)
 			}
-			updateProgress(40, "verify", "✅ ISO verified successfully")
+			updateProgress(40, "verify", "ISO verified successfully")
 		}
 
 	case "local":
 		status.Steps["upload"] = "running"
-		status.Logs = append(status.Logs, "📦 Using previously uploaded local ISO...")
+		status.Logs = append(status.Logs, "Using previously uploaded local ISO...")
 		if request.SourceISO == "" {
 			return fmt.Errorf("local SourceISO path is empty")
 		}
@@ -576,7 +616,7 @@ func (h *Handler) buildProcessWithStatus(request *GenerateISORequest, status *Bu
 			return fmt.Errorf("local ISO not found: %w", err)
 		}
 		localImagePath = request.SourceISO
-		updateProgress(20, "upload", "✅ Local ISO ready")
+		updateProgress(20, "upload", "Local ISO ready")
 
 		imageMeta, err = utils.NewImageMeta(localImagePath)
 		if err != nil {
@@ -586,16 +626,16 @@ func (h *Handler) buildProcessWithStatus(request *GenerateISORequest, status *Bu
 
 	// Step 3: Extract ISO image (always extract to ensure fresh state)
 	status.Steps["extract"] = "running"
-	status.Logs = append(status.Logs, "📂 Extracting ISO contents...")
+	status.Logs = append(status.Logs, "Extracting ISO contents...")
 	if err := h.generator.ExtractISO(imageMeta.CodeName, localImagePath); err != nil {
 		return fmt.Errorf("ISO extraction failed: %w", err)
 	}
-	status.Logs = append(status.Logs, "✅ ISO contents extracted")
-	updateProgress(50, "extract", "✅ ISO extracted")
+	status.Logs = append(status.Logs, "ISO contents extracted")
+	updateProgress(50, "extract", "ISO extracted")
 
 	// Step 4: Add configuration data (user-data and meta-data)
 	status.Steps["inject"] = "running"
-	status.Logs = append(status.Logs, "🧩 Injecting user-data configuration...")
+	status.Logs = append(status.Logs, "Injecting user-data configuration...")
 
 	userDataFile := h.generator.Path.MetaDataFile(generator.UserDataFile)
 	if err := os.WriteFile(userDataFile, []byte(request.UserData), 0644); err != nil {
@@ -604,61 +644,61 @@ func (h *Handler) buildProcessWithStatus(request *GenerateISORequest, status *Bu
 	if err := h.generator.InjectNoCloudConfig(imageMeta.CodeName); err != nil {
 		return fmt.Errorf("failed to add config data: %w", err)
 	}
-	updateProgress(60, "inject", "✅ user-data injected")
+	updateProgress(60, "inject", "user-data injected")
 
 	// Step 4b: Inject embedded custom files into ISO
 	if len(request.EmbeddedFiles) > 0 {
 		status.Steps["embedded"] = "running"
-		status.Logs = append(status.Logs, "📁 Injecting embedded custom files...")
+		status.Logs = append(status.Logs, "Injecting embedded custom files...")
 		if err := h.generator.InjectEmbeddedFiles(request.EmbeddedFiles); err != nil {
 			return fmt.Errorf("failed to inject embedded files: %w", err)
 		}
-		updateProgress(63, "embedded", fmt.Sprintf("✅ %d embedded file(s) injected", len(request.EmbeddedFiles)))
+		updateProgress(63, "embedded", fmt.Sprintf(" %d embedded file(s) injected", len(request.EmbeddedFiles)))
 	}
 
 	// Step 5: Download and prepare additional packages (if any)
 	if len(request.PackageList) > 0 {
 		status.Steps["packages"] = "running"
-		status.Logs = append(status.Logs, "📦 Preparing additional packages...")
+		status.Logs = append(status.Logs, "Preparing additional packages...")
 
 		if err := h.generator.PrepareLocalPackagesRepo(request.PackageList); err != nil {
 			return fmt.Errorf("failed to download and prepare packages: %w", err)
 		}
 
-		updateProgress(65, "packages", "✅ Extra packages prepared")
+		updateProgress(65, "packages", "Extra packages prepared")
 	}
 
 	// Step 6: Add autoinstall parameters to kernel command line
 	status.Steps["kernel"] = "running"
-	status.Logs = append(status.Logs, "⚙️ Adding autoinstall kernel parameters...")
+	status.Logs = append(status.Logs, "Adding autoinstall kernel parameters...")
 	if err := h.generator.AddAutoinstallKernelParams(imageMeta.CodeName); err != nil {
 		return fmt.Errorf("failed to add autoinstall parameter: %w", err)
 	}
-	updateProgress(70, "kernel", "✅ Kernel parameters added")
+	updateProgress(70, "kernel", "Kernel parameters added")
 
 	// Step 7: Configure HWE kernel (if enabled)
 	status.Steps["hwe"] = "running"
-	status.Logs = append(status.Logs, "🧪 Configuring HWE kernel if requested...")
+	status.Logs = append(status.Logs, "Configuring HWE kernel if requested...")
 	if err := h.generator.ConfigureHWEKernel(imageMeta.CodeName, request.UseHWEKernel); err != nil {
 		return fmt.Errorf("failed to configure HWE kernel: %w", err)
 	}
-	updateProgress(80, "hwe", "✅ HWE kernel configuration processed")
+	updateProgress(80, "hwe", "HWE kernel configuration processed")
 
 	// Step 8: Update MD5 (if enabled)
 	status.Steps["md5"] = "running"
-	status.Logs = append(status.Logs, "🔢 Updating MD5 checksums if requested...")
+	status.Logs = append(status.Logs, "Updating MD5 checksums if requested...")
 	if err := h.generator.UpdateGrubMD5Sums(imageMeta.CodeName, request.MD5Checksum); err != nil {
 		return fmt.Errorf("failed to update MD5 checksum: %w", err)
 	}
-	updateProgress(90, "md5", "✅ MD5 checksums updated")
+	updateProgress(90, "md5", "MD5 checksums updated")
 
 	// Step 9: Repackage ISO image
 	status.Steps["repackage"] = "running"
-	status.Logs = append(status.Logs, "📦 Repackaging ISO image...")
+	status.Logs = append(status.Logs, "Repackaging ISO image...")
 	if err := h.generator.RepackageISOImage(imageMeta.CodeName, imageMeta.VolumeID, request.DestinationISO); err != nil {
 		return fmt.Errorf("failed to repackage ISO: %w", err)
 	}
-	updateProgress(100, "repackage", "✅ ISO repackaged successfully")
+	updateProgress(100, "repackage", "ISO repackaged successfully")
 
 	return nil
 }
@@ -779,12 +819,12 @@ func (h *Handler) DownloadISO(c *gin.Context) {
 	}
 
 	// Debug log: attempting file download
-	logger.Infof("Attempting to download file: %s", status.Output)
+	logger.Info(fmt.Sprintf("Attempting to download file: %s", status.Output))
 
 	// Check if the output file exists at the primary path
 	fileInfo, err := os.Stat(status.Output)
 	if os.IsNotExist(err) {
-		logger.Errorf("File not found at primary location: %s", status.Output)
+		logger.Error(fmt.Sprintf("File not found at primary location: %s", status.Output))
 
 		// Try alternative path in the download directory
 		fileName := filepath.Base(status.Output)
@@ -793,7 +833,7 @@ func (h *Handler) DownloadISO(c *gin.Context) {
 		altInfo, altErr := os.Stat(altPath)
 		if altErr == nil {
 			// Found alternative file in download dir
-			logger.Infof("Found alternative file at: %s", altPath)
+			logger.Info(fmt.Sprintf("Found alternative file at: %s", altPath))
 			fileInfo = altInfo
 			status.Output = altPath
 		} else {
@@ -803,7 +843,7 @@ func (h *Handler) DownloadISO(c *gin.Context) {
 
 			if curErr == nil {
 				// Found file in current directory
-				logger.Infof("Found file in current directory: %s", curPath)
+				logger.Info(fmt.Sprintf("Found file in current directory: %s", curPath))
 				fileInfo = curInfo
 				status.Output = curPath
 			} else {
@@ -814,13 +854,13 @@ func (h *Handler) DownloadISO(c *gin.Context) {
 
 				if workErr == nil {
 					// Found file in working directory
-					logger.Infof("Found file in working directory: %s", workPath)
+					logger.Info(fmt.Sprintf("Found file in working directory: %s", workPath))
 					fileInfo = workInfo
 					status.Output = workPath
 				} else {
 					// File not found anywhere
-					logger.Errorf("File not found at any location: %s, %s, %s, %s",
-						status.Output, altPath, curPath, workPath)
+					logger.Error(fmt.Sprintf("File not found at any location: %s, %s, %s, %s",
+						status.Output, altPath, curPath, workPath))
 					c.JSON(http.StatusNotFound, gin.H{
 						"error": "ISO file not found on server",
 					})
@@ -830,7 +870,7 @@ func (h *Handler) DownloadISO(c *gin.Context) {
 		}
 	} else if err != nil {
 		// Unexpected error while checking file
-		logger.Errorf("Error checking file: %v", err)
+		logger.Error(fmt.Sprintf("Error checking file: %v", err))
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"error": "Error checking file: " + err.Error(),
 		})
@@ -838,11 +878,11 @@ func (h *Handler) DownloadISO(c *gin.Context) {
 	}
 
 	// Log file size
-	logger.Infof("File exists, size: %d bytes", fileInfo.Size())
+	logger.Info(fmt.Sprintf("File exists, size: %d bytes", fileInfo.Size()))
 
 	// Set response headers for file download
 	fileName := filepath.Base(status.Output)
-	logger.Infof("Setting filename for download: %s", fileName)
+	logger.Info(fmt.Sprintf("Setting filename for download: %s", fileName))
 
 	c.Header("Content-Description", "File Transfer")
 	c.Header("Content-Transfer-Encoding", "binary")
@@ -851,7 +891,7 @@ func (h *Handler) DownloadISO(c *gin.Context) {
 	c.Header("Content-Length", fmt.Sprintf("%d", fileInfo.Size()))
 
 	// Send the file to the client
-	logger.Infof("Sending file to client...")
+	logger.Info(fmt.Sprintf("Sending file to client..."))
 	c.File(status.Output)
 }
 
@@ -880,7 +920,7 @@ func (h *Handler) ResetBuildConfig(c *gin.Context) {
 		for _, entry := range entries {
 			fullPath := filepath.Join(dir, entry.Name())
 			if err := os.RemoveAll(fullPath); err != nil {
-				logger.Warnf("Failed to remove %s: %v", fullPath, err)
+				logger.Warn(fmt.Sprintf("Failed to remove %s: %v", fullPath, err))
 			}
 		}
 	}
@@ -894,7 +934,7 @@ func (h *Handler) ResetBuildConfig(c *gin.Context) {
 	}
 	for _, dir := range essentialDirs {
 		if err := os.MkdirAll(dir, 0755); err != nil {
-			logger.Warnf("Failed to recreate directory %s: %v", dir, err)
+			logger.Warn(fmt.Sprintf("Failed to recreate directory %s: %v", dir, err))
 		}
 	}
 
@@ -1541,4 +1581,294 @@ type SaveTemplateRequest struct {
 type ImportTemplateRequest struct {
 	Name string `json:"name" binding:"required"`
 	YAML string `json:"yaml" binding:"required"`
+}
+
+// GetHostInfo returns comprehensive host system information
+// @Summary Get host system info
+// @Description Get detailed information about the current host system (OS, kernel, platform, runtime)
+// @Tags host
+// @Produce json
+// @Success 200 {object} map[string]interface{} "Host info retrieved successfully"
+// @Failure 500 {object} map[string]interface{} "Failed to retrieve host info"
+// @Router /host/info [get]
+func (h *Handler) GetHostInfo(c *gin.Context) {
+	hostInfo := HostInfo{
+		OS:       readOSRelease(),
+		Platform: readPlatformInfo(),
+		Kernel:   readKernelInfo(),
+		Runtime: RuntimeInfo{
+			GoVersion: runtime.Version(),
+			GoArch:    runtime.GOARCH,
+		},
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"host":    hostInfo,
+		"message": "Host info retrieved successfully",
+	})
+}
+
+// readOSRelease parses /etc/os-release to extract OS information
+func readOSRelease() OSInfo {
+	info := OSInfo{
+		PrettyName: "Unknown",
+		Name:       "unknown",
+		Version:    "unknown",
+		Codename:   "unknown",
+	}
+
+	file, err := os.Open("/etc/os-release")
+	if err != nil {
+		logger.Warn(fmt.Sprintf("Failed to open /etc/os-release: %v", err))
+		return info
+	}
+	defer file.Close()
+
+	scanner := bufio.NewScanner(file)
+	for scanner.Scan() {
+		line := scanner.Text()
+		parts := strings.SplitN(line, "=", 2)
+		if len(parts) != 2 {
+			continue
+		}
+		key := parts[0]
+		value := strings.Trim(parts[1], "\"")
+
+		switch key {
+		case "PRETTY_NAME":
+			info.PrettyName = value
+		case "NAME":
+			info.Name = value
+		case "VERSION_ID":
+			info.Version = value
+		case "VERSION_CODENAME":
+			info.Codename = value
+		case "UBUNTU_CODENAME":
+			if info.Codename == "unknown" {
+				info.Codename = value
+			}
+		}
+	}
+
+	return info
+}
+
+// readPlatformInfo extracts platform information from Go runtime
+func readPlatformInfo() PlatformInfo {
+	return PlatformInfo{
+		OS:   runtime.GOOS,
+		Arch: runtime.GOARCH,
+	}
+}
+
+// readKernelInfo reads kernel release from /proc/version
+func readKernelInfo() KernelInfo {
+	info := KernelInfo{
+		Release: "unknown",
+	}
+
+	file, err := os.Open("/proc/version")
+	if err != nil {
+		logger.Warn(fmt.Sprintf("Failed to open /proc/version: %v", err))
+		return info
+	}
+	defer file.Close()
+
+	scanner := bufio.NewScanner(file)
+	if scanner.Scan() {
+		versionLine := scanner.Text()
+		// /proc/version format: Linux version X.Y.Z ...
+		parts := strings.Fields(versionLine)
+		if len(parts) >= 3 {
+			info.Release = parts[2]
+		}
+	}
+
+	return info
+}
+
+// ExtractArchive extracts a zip or tar.gz archive to the embedded directory,
+// preserving file permissions stored in the archive headers.
+// POST /api/v1/embedded/extract-archive
+func (h *Handler) ExtractArchive(c *gin.Context) {
+	prefix := c.PostForm("prefix")
+	baseDir := h.generator.Path.Mount()
+	if prefix != "" {
+		baseDir = filepath.Join(baseDir, prefix)
+	}
+	absRoot, _ := filepath.Abs(h.generator.Path.Mount())
+	absBase, _ := filepath.Abs(baseDir)
+	if !strings.HasPrefix(absBase, absRoot) {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "path traversal not allowed"})
+		return
+	}
+
+	if err := os.MkdirAll(baseDir, 0755); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create base directory: " + err.Error()})
+		return
+	}
+
+	file, _, err := c.Request.FormFile("archive")
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "no archive provided: " + err.Error()})
+		return
+	}
+	defer file.Close()
+
+	data, err := io.ReadAll(file)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to read archive: " + err.Error()})
+		return
+	}
+
+	// Try gzip (tar.gz) first, then fall back to zip
+	extracted := 0
+	var lastErr string
+
+	// Check for gzip magic bytes: 1f 8b
+	if len(data) >= 2 && data[0] == 0x1f && data[1] == 0x8b {
+		extracted, lastErr = extractTarGz(data, baseDir, absRoot)
+	} else {
+		extracted, lastErr = extractZip(data, baseDir, absRoot)
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"success":   true,
+		"extracted": extracted,
+		"lastError": lastErr,
+	})
+}
+
+func extractZip(data []byte, baseDir, absRoot string) (int, string) {
+	zr, err := zip.NewReader(bytes.NewReader(data), int64(len(data)))
+	if err != nil {
+		return 0, "invalid zip file: " + err.Error()
+	}
+
+	extracted := 0
+	var lastErr string
+	for _, zipEntry := range zr.File {
+		if strings.Contains(zipEntry.Name, "..") {
+			lastErr = "disallowed path: " + zipEntry.Name
+			continue
+		}
+
+		targetPath := filepath.Join(baseDir, zipEntry.Name)
+		absTarget, _ := filepath.Abs(targetPath)
+		if !strings.HasPrefix(absTarget, absRoot) {
+			lastErr = "path outside root: " + zipEntry.Name
+			continue
+		}
+
+		if zipEntry.FileInfo().IsDir() {
+			if err := os.MkdirAll(targetPath, 0755); err != nil {
+				lastErr = "failed to create dir " + zipEntry.Name + ": " + err.Error()
+			}
+		} else {
+			rc, err := zipEntry.Open()
+			if err != nil {
+				lastErr = "failed to read zip entry " + zipEntry.Name + ": " + err.Error()
+				continue
+			}
+
+			if err := os.MkdirAll(filepath.Dir(targetPath), 0755); err != nil {
+				rc.Close()
+				lastErr = "failed to create parent dir for " + zipEntry.Name
+				continue
+			}
+
+			outFile, err := os.OpenFile(targetPath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0644)
+			if err != nil {
+				rc.Close()
+				lastErr = "failed to create file " + zipEntry.Name + ": " + err.Error()
+				continue
+			}
+
+			if _, err := io.Copy(outFile, rc); err != nil {
+				rc.Close()
+				outFile.Close()
+				lastErr = "failed to write file " + zipEntry.Name + ": " + err.Error()
+				continue
+			}
+			rc.Close()
+			outFile.Close()
+
+			mode := zipEntry.FileInfo().Mode().Perm()
+			if mode != 0 {
+				os.Chmod(targetPath, mode)
+			}
+		}
+		extracted++
+	}
+	return extracted, lastErr
+}
+
+func extractTarGz(data []byte, baseDir, absRoot string) (int, string) {
+	gr, err := gzip.NewReader(bytes.NewReader(data))
+	if err != nil {
+		return 0, "invalid tar.gz: " + err.Error()
+	}
+	defer gr.Close()
+
+	tr := tar.NewReader(gr)
+	extracted := 0
+	var lastErr string
+
+	for {
+		hdr, err := tr.Next()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			lastErr = "failed to read tar: " + err.Error()
+			break
+		}
+
+		if strings.Contains(hdr.Name, "..") {
+			lastErr = "disallowed path in tar: " + hdr.Name
+			continue
+		}
+
+		targetPath := filepath.Join(baseDir, hdr.Name)
+		absTarget, _ := filepath.Abs(targetPath)
+		if !strings.HasPrefix(absTarget, absRoot) {
+			lastErr = "path outside root: " + hdr.Name
+			continue
+		}
+
+		switch hdr.Typeflag {
+		case tar.TypeDir:
+			if err := os.MkdirAll(targetPath, hdr.FileInfo().Mode().Perm()); err != nil {
+				lastErr = "failed to create dir " + hdr.Name + ": " + err.Error()
+			}
+		case tar.TypeReg, tar.TypeRegA:
+			parentDir := filepath.Dir(targetPath)
+			if parentDir != "" && parentDir != "." {
+				if err := os.MkdirAll(parentDir, 0755); err != nil {
+					lastErr = "failed to create parent dir for " + hdr.Name
+					continue
+				}
+			}
+
+			outFile, err := os.OpenFile(targetPath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, hdr.FileInfo().Mode().Perm())
+			if err != nil {
+				lastErr = "failed to create file " + hdr.Name + ": " + err.Error()
+				continue
+			}
+			if _, err := io.Copy(outFile, tr); err != nil {
+				outFile.Close()
+				lastErr = "failed to write file " + hdr.Name + ": " + err.Error()
+				continue
+			}
+			outFile.Close()
+			os.Chmod(targetPath, hdr.FileInfo().Mode().Perm())
+		case tar.TypeSymlink:
+			if err := os.Symlink(hdr.Linkname, targetPath); err != nil && !os.IsExist(err) {
+				lastErr = "failed to create symlink " + hdr.Name + ": " + err.Error()
+			}
+		}
+		extracted++
+	}
+	return extracted, lastErr
 }

@@ -347,13 +347,11 @@ async function generateISO() {
             pollBuildStatus(buildResult.buildID);
         } else {
             showStatus('userdataStatus', 'error', `Build failed: ${buildResult.error}`);
-            isoHideBuildProgress();
         }
         
     } catch (error) {
         console.error('ISO generation error:', error);
         showStatus('userdataStatus', 'error', 'ISO generation failed');
-        isoHideBuildProgress();
     }
 }
 
@@ -506,10 +504,8 @@ async function pollBuildStatus(buildID) {
             if (status && status.status === 'completed') {
                 showStatus('userdataStatus', 'success', 'Build completed successfully!');
                 showDownloadSection(buildID);
-                isoHideBuildProgress();
             } else if (status && status.status === 'failed') {
                 showStatus('userdataStatus', 'error', `Build failed: ${status.error || 'Unknown error'}`);
-                isoHideBuildProgress();
             } else {
                 // Continue polling
                 setTimeout(() => pollBuildStatus(buildID), 2000);
@@ -520,7 +516,6 @@ async function pollBuildStatus(buildID) {
     } catch (error) {
         console.error('Status polling error:', error);
         showStatus('userdataStatus', 'error', 'Failed to get build status');
-        isoHideBuildProgress();
     }
 }
 

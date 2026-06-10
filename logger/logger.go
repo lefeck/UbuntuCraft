@@ -1,73 +1,116 @@
 package logger
 
 import (
+	"fmt"
 	"io"
 	"os"
-
-	"github.com/sirupsen/logrus"
+	"sync"
+	"time"
 )
 
-var Logger *logrus.Logger
-var AccessLogWriter io.Writer
+type Level int
 
-// LogConfig holds logging configuration
-type LogConfig struct {
-	ShowCommandOutput bool
-	CommandLogLevel   logrus.Level
-}
+const (
+	DEBUG Level = iota
+	INFO
+	WARN
+	ERROR
+)
 
 var (
-	Info   func(...interface{})
-	Warn   func(...interface{})
-	Error  func(...interface{})
-	Infof  func(string, ...interface{})
-	Warnf  func(string, ...interface{})
-	Errorf func(string, ...interface{})
-	Fatalf func(string, ...interface{})
-
-	// Global log configuration
-	Config = LogConfig{
-		ShowCommandOutput: false,            // Set to false to hide command output
-		CommandLogLevel:   logrus.InfoLevel, // Level for command execution logs
-	}
+	logger       *Logger
+	once         sync.Once
+	currentLevel = INFO
 )
 
-func init() {
-	Logger = logrus.New()
-	Logger.SetFormatter(&logrus.TextFormatter{
-		FullTimestamp:   true,
-		TimestampFormat: "2006-01-02 15:04:05",
+type Logger struct {
+	mu     sync.Mutex
+	output io.Writer
+}
+
+func Init() {
+	once.Do(func() {
+		logger = &Logger{
+			output: os.Stdout,
+		}
 	})
-	Logger.SetLevel(logrus.InfoLevel)
+}
 
-	// Write logs to both stdout and file
-	logFile, err := os.OpenFile("/var/log/ubuntucraft.log", os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
-	if err != nil {
-		Logger.SetOutput(os.Stdout)
-		AccessLogWriter = os.Stdout
-		Logger.Warnf("Failed to open log file /var/log/ubuntucraft.log, falling back to stdout only: %v", err)
-	} else {
-		multiWriter := io.MultiWriter(os.Stdout, logFile)
-		Logger.SetOutput(multiWriter)
-		AccessLogWriter = multiWriter
+func InitWithOutput(w io.Writer) {
+	once.Do(func() {
+		logger = &Logger{
+			output: w,
+		}
+	})
+}
+
+func SetLevel(level Level) {
+	currentLevel = level
+}
+
+func GetWriter() io.Writer {
+	if logger == nil {
+		Init()
 	}
-
-	// Initialize function variables after Logger is created
-	Info = Logger.Info
-	Warn = Logger.Warn
-	Error = Logger.Error
-	Infof = Logger.Infof
-	Warnf = Logger.Warnf
-	Errorf = Logger.Errorf
-	Fatalf = Logger.Fatalf
+	return logger
 }
 
-// SetCommandOutputEnabled enables or disables command output logging
-func SetCommandOutputEnabled(enabled bool) {
-	Config.ShowCommandOutput = enabled
+func (l *Logger) Write(p []byte) (n int, err error) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.output.Write(p)
 }
 
-// SetCommandLogLevel sets the log level for command execution
-func SetCommandLogLevel(level logrus.Level) {
-	Config.CommandLogLevel = level
+func formatTime() string {
+	return time.Now().Format("2006-01-02 15:04:05")
+}
+
+func levelString(level Level) string {
+	switch level {
+	case DEBUG:
+		return "DEBUG"
+	case INFO:
+		return "INFO"
+	case WARN:
+		return "WARN"
+	case ERROR:
+		return "ERROR"
+	default:
+		return "UNKNOWN"
+	}
+}
+
+func log(level Level, format string, args ...interface{}) {
+	if logger == nil {
+		Init()
+	}
+	if level < currentLevel {
+		return
+	}
+	msg := fmt.Sprintf(format, args...)
+	line := fmt.Sprintf("[%s] [%s] %s\n", formatTime(), levelString(level), msg)
+	logger.mu.Lock()
+	defer logger.mu.Unlock()
+	fmt.Fprint(logger.output, line)
+}
+
+func Debug(format string, args ...interface{}) {
+	log(DEBUG, format, args...)
+}
+
+func Info(format string, args ...interface{}) {
+	log(INFO, format, args...)
+}
+
+func Warn(format string, args ...interface{}) {
+	log(WARN, format, args...)
+}
+
+func Error(format string, args ...interface{}) {
+	log(ERROR, format, args...)
+}
+
+func Fatal(format string, args ...interface{}) {
+	log(ERROR, format, args...)
+	os.Exit(1)
 }

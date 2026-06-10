@@ -2,6 +2,7 @@ package main
 
 import (
 	"flag"
+	"fmt"
 
 	"github.com/gin-gonic/gin"
 	"github.com/lefeck/ubuntu-autoinstaller/api"
@@ -21,10 +22,10 @@ func main() {
 	}
 	server, err := server.New(handler, cfg)
 	if err != nil {
-		logger.Fatalf("Failed to create server: %v", err)
+		logger.Fatal(fmt.Sprintf("Failed to create server: %v", err))
 	}
-	logger.Infof("Starting server on port %d", cfg.Port)
+	logger.Info(fmt.Sprintf("Starting server on port %d", cfg.Port))
 	if err := server.Run(); err != nil {
-		logger.Fatalf("Failed to run server: %v", err)
+		logger.Fatal(fmt.Sprintf("Failed to run server: %v", err))
 	}
 }
