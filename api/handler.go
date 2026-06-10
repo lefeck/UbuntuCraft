@@ -1,11 +1,13 @@
 package api
 
 import (
+	"bufio"
 	"encoding/base64"
 	"fmt"
 	"net/http"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"time"
 
@@ -18,6 +20,39 @@ import (
 
 	"github.com/gin-gonic/gin"
 )
+
+// HostInfo represents the host system information
+type HostInfo struct {
+	OS       OSInfo       `json:"os"`
+	Platform PlatformInfo `json:"platform"`
+	Kernel   KernelInfo   `json:"kernel"`
+	Runtime  RuntimeInfo `json:"runtime"`
+}
+
+// OSInfo contains operating system details
+type OSInfo struct {
+	PrettyName string `json:"prettyName"`
+	Name       string `json:"name"`
+	Version    string `json:"version"`
+	Codename   string `json:"codename"`
+}
+
+// PlatformInfo contains platform details
+type PlatformInfo struct {
+	OS   string `json:"os"`
+	Arch string `json:"arch"`
+}
+
+// KernelInfo contains kernel details
+type KernelInfo struct {
+	Release string `json:"release"`
+}
+
+// RuntimeInfo contains runtime details
+type RuntimeInfo struct {
+	GoVersion string `json:"goVersion"`
+	GoArch    string `json:"goArch"`
+}
 
 // Handler
 type Handler struct {
@@ -1541,4 +1576,109 @@ type SaveTemplateRequest struct {
 type ImportTemplateRequest struct {
 	Name string `json:"name" binding:"required"`
 	YAML string `json:"yaml" binding:"required"`
+}
+
+// GetHostInfo returns comprehensive host system information
+// @Summary Get host system info
+// @Description Get detailed information about the current host system (OS, kernel, platform, runtime)
+// @Tags host
+// @Produce json
+// @Success 200 {object} map[string]interface{} "Host info retrieved successfully"
+// @Failure 500 {object} map[string]interface{} "Failed to retrieve host info"
+// @Router /host/info [get]
+func (h *Handler) GetHostInfo(c *gin.Context) {
+	hostInfo := HostInfo{
+		OS:       readOSRelease(),
+		Platform: readPlatformInfo(),
+		Kernel:   readKernelInfo(),
+		Runtime: RuntimeInfo{
+			GoVersion: runtime.Version(),
+			GoArch:    runtime.GOARCH,
+		},
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"host":    hostInfo,
+		"message": "Host info retrieved successfully",
+	})
+}
+
+// readOSRelease parses /etc/os-release to extract OS information
+func readOSRelease() OSInfo {
+	info := OSInfo{
+		PrettyName: "Unknown",
+		Name:       "unknown",
+		Version:    "unknown",
+		Codename:   "unknown",
+	}
+
+	file, err := os.Open("/etc/os-release")
+	if err != nil {
+		logger.Warnf("Failed to open /etc/os-release: %v", err)
+		return info
+	}
+	defer file.Close()
+
+	scanner := bufio.NewScanner(file)
+	for scanner.Scan() {
+		line := scanner.Text()
+		parts := strings.SplitN(line, "=", 2)
+		if len(parts) != 2 {
+			continue
+		}
+		key := parts[0]
+		value := strings.Trim(parts[1], "\"")
+
+		switch key {
+		case "PRETTY_NAME":
+			info.PrettyName = value
+		case "NAME":
+			info.Name = value
+		case "VERSION_ID":
+			info.Version = value
+		case "VERSION_CODENAME":
+			info.Codename = value
+		case "UBUNTU_CODENAME":
+			if info.Codename == "unknown" {
+				info.Codename = value
+			}
+		}
+	}
+
+	return info
+}
+
+// readPlatformInfo extracts platform information from Go runtime
+func readPlatformInfo() PlatformInfo {
+	return PlatformInfo{
+		OS:   runtime.GOOS,
+		Arch: runtime.GOARCH,
+	}
+}
+
+// readKernelInfo reads kernel release from /proc/version
+func readKernelInfo() KernelInfo {
+	info := KernelInfo{
+		Release: "unknown",
+	}
+
+	file, err := os.Open("/proc/version")
+	if err != nil {
+		logger.Warnf("Failed to open /proc/version: %v", err)
+		return info
+	}
+	defer file.Close()
+
+	scanner := bufio.NewScanner(file)
+	if scanner.Scan() {
+		versionLine := scanner.Text()
+		// /proc/version format: Linux version X.Y.Z ...
+		parts := strings.Fields(versionLine)
+		if len(parts) >= 3 {
+			info.Release = parts[2]
+		}
+	}
+
+	return info
 }

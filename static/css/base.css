@@ -1846,3 +1846,130 @@ body {
         padding: 14px 16px;
     }
 }
+
+/* System Info Page */
+.system-info-content {
+    padding: 0;
+}
+
+.system-info-loading {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    padding: 60px 20px;
+    color: #64748b;
+    font-size: 14px;
+}
+
+.loading-spinner {
+    width: 20px;
+    height: 20px;
+    border: 2px solid #e2e8f0;
+    border-top-color: #3b82f6;
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+    to { transform: rotate(360deg); }
+}
+
+.system-info-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    gap: 20px;
+    padding: 20px 0;
+}
+
+.system-info-card {
+    background: #fff;
+    border: 1px solid #e2e8f0;
+    border-radius: 8px;
+    overflow: hidden;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+}
+
+.system-info-card-header {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 14px 18px;
+    background: #f8fafc;
+    border-bottom: 1px solid #e2e8f0;
+}
+
+.system-info-card-header h3 {
+    margin: 0;
+    font-size: 14px;
+    font-weight: 600;
+    color: #334155;
+}
+
+.system-info-icon {
+    font-size: 18px;
+}
+
+.system-info-card-body {
+    padding: 14px 18px;
+}
+
+.system-info-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 8px 0;
+    border-bottom: 1px solid #f1f5f9;
+}
+
+.system-info-row:last-child {
+    border-bottom: none;
+}
+
+.system-info-label {
+    font-size: 13px;
+    color: #64748b;
+    font-weight: 500;
+}
+
+.system-info-value {
+    font-size: 13px;
+    color: #334155;
+    font-weight: 500;
+    font-family: 'SF Mono', 'Monaco', 'Inconsolata', 'Roboto Mono', monospace;
+}
+
+.system-info-error {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    padding: 40px 20px;
+    color: #dc2626;
+    background: #fef2f2;
+    border-radius: 8px;
+    margin: 20px 0;
+}
+
+.system-info-error-icon {
+    font-size: 18px;
+}
+
+.system-info-note {
+    padding: 16px 18px;
+    background: #f0f9ff;
+    border: 1px solid #bae6fd;
+    border-radius: 8px;
+    margin-top: 20px;
+}
+
+.system-info-note p {
+    margin: 0;
+    font-size: 13px;
+    color: #0369a1;
+    line-height: 1.6;
+}
+
+.system-info-note strong {
+    color: #0c4a6e;
+}

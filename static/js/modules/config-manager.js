@@ -634,10 +634,6 @@ async function loadDefaultConfig() {
         if (typeof showNotification === 'function') {
             showNotification('Default template loaded successfully!', 'success');
         }
-
-        if (typeof AppNavigation !== 'undefined') {
-            AppNavigation.switchPage('config');
-        }
     } catch (error) {
         showStatus('configActionStatus', 'error', 'Failed to load default configuration: ' + error.message);
     }
@@ -1392,9 +1388,11 @@ async function previewUserData() {
                 previewElement.style.display = 'block';
             }
             showStatus('configStatus', 'success', 'Configuration preview generated successfully');
+            document.getElementById('userdataActions').style.display = 'block';
             if (window.AppNavigation) window.AppNavigation.switchPage('preview');
         } else {
             showStatus('configStatus', 'error', result.error || 'Configuration preview failed');
+            document.getElementById('userdataActions').style.display = 'none';
         }
     } catch (error) {
         console.error('Configuration preview error:', error);
@@ -1412,6 +1410,7 @@ function createLocalConfigPreview(config) {
         const previewElement = document.getElementById('configPreview');
         if (!previewElement) {
             showStatus('configStatus', 'error', 'Preview element not found');
+            document.getElementById('userdataActions').style.display = 'none';
             return;
         }
         
@@ -1751,11 +1750,13 @@ function createLocalConfigPreview(config) {
         previewElement.textContent = previewContent;
         previewElement.style.display = 'block';
         showStatus('configStatus', 'success', 'Local configuration preview generated');
+        document.getElementById('userdataActions').style.display = 'block';
         if (window.AppNavigation) window.AppNavigation.switchPage('preview');
 
     } catch (error) {
         console.error('Local preview generation error:', error);
         showStatus('configStatus', 'error', 'Failed to generate local configuration preview');
+        document.getElementById('userdataActions').style.display = 'none';
     }
 }
 

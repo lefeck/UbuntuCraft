@@ -70,6 +70,9 @@ func (s *Server) Routes() {
 	api.POST("/config/load", s.handler.LoadConfigFromYAML)
 	api.POST("/config/validate", s.handler.ValidateConfig)
 
+	// Host info endpoint
+	api.GET("/host/info", s.handler.GetHostInfo)
+
 	// user-data endpoints
 	api.POST("/userdata/generate", s.handler.GenerateUserData)
 	api.POST("/userdata/preview", s.handler.PreviewUserData)

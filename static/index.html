@@ -23,6 +23,7 @@
     <script src="/static/js/modules/network-manager.js"></script>
     <script src="/static/js/modules/network-config-fix.js"></script>
     <script src="/static/js/modules/iso-generator.js"></script>
+    <script src="/static/js/modules/system-info-manager.js"></script>
     <script src="/static/js/app.js"></script>
 </head>
 <body>
@@ -36,7 +37,10 @@
                 <span class="brand-text">UbuntuCraft</span>
             </div>
             <nav class="sidebar-nav">
-                <button class="sidebar-item active" data-page="config" onclick="AppNavigation.switchPage('config')">
+                <button class="sidebar-item active" data-page="system-info" onclick="AppNavigation.switchPage('system-info')">
+                    <span class="sidebar-label">System Info</span>
+                </button>
+                <button class="sidebar-item" data-page="config" onclick="AppNavigation.switchPage('config')">
                     <span class="sidebar-label">Configuration</span>
                 </button>
                 <button class="sidebar-item" data-page="preview" onclick="AppNavigation.switchPage('preview')">
@@ -68,8 +72,101 @@
                 <div id="templatesContent"></div>
             </div>
 
+            <!-- Page: System Info -->
+            <div class="content-page active" data-page="system-info">
+                <div class="page-header">
+                    <h2>System Info</h2>
+                </div>
+                <div id="systemInfoContent" class="system-info-content">
+                    <div class="system-info-loading" id="systemInfoLoading">
+                        <div class="loading-spinner"></div>
+                        <span>Loading system information...</span>
+                    </div>
+                    <div class="system-info-grid" id="systemInfoGrid" style="display: none;">
+                        <!-- OS Section -->
+                        <div class="system-info-card">
+                            <div class="system-info-card-header">
+                                <span class="system-info-icon">&#x1F4BB;</span>
+                                <h3>Operating System</h3>
+                            </div>
+                            <div class="system-info-card-body">
+                                <div class="system-info-row">
+                                    <span class="system-info-label">Distribution</span>
+                                    <span class="system-info-value" id="hostPrettyName">-</span>
+                                </div>
+                                <div class="system-info-row">
+                                    <span class="system-info-label">Name</span>
+                                    <span class="system-info-value" id="hostName">-</span>
+                                </div>
+                                <div class="system-info-row">
+                                    <span class="system-info-label">Version</span>
+                                    <span class="system-info-value" id="hostVersion">-</span>
+                                </div>
+                                <div class="system-info-row">
+                                    <span class="system-info-label">Codename</span>
+                                    <span class="system-info-value" id="hostCodename">-</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Hardware Section -->
+                        <div class="system-info-card">
+                            <div class="system-info-card-header">
+                                <span class="system-info-icon">&#x1F5A5;</span>
+                                <h3>Hardware</h3>
+                            </div>
+                            <div class="system-info-card-body">
+                                <div class="system-info-row">
+                                    <span class="system-info-label">Architecture</span>
+                                    <span class="system-info-value" id="hostArch">-</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Kernel Section -->
+                        <div class="system-info-card">
+                            <div class="system-info-card-header">
+                                <span class="system-info-icon">&#x2699;</span>
+                                <h3>Kernel</h3>
+                            </div>
+                            <div class="system-info-card-body">
+                                <div class="system-info-row">
+                                    <span class="system-info-label">Release</span>
+                                    <span class="system-info-value" id="hostKernel">-</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Runtime Section -->
+                        <div class="system-info-card">
+                            <div class="system-info-card-header">
+                                <span class="system-info-icon">&#x1F40D;</span>
+                                <h3>Runtime</h3>
+                            </div>
+                            <div class="system-info-card-body">
+                                <div class="system-info-row">
+                                    <span class="system-info-label">Go Version</span>
+                                    <span class="system-info-value" id="hostGoVersion">-</span>
+                                </div>
+                                <div class="system-info-row">
+                                    <span class="system-info-label">Go Arch</span>
+                                    <span class="system-info-value" id="hostGoArch">-</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="system-info-error" id="systemInfoError" style="display: none;">
+                        <span class="system-info-error-icon">&#x26A0;</span>
+                        <span id="systemInfoErrorMsg">Failed to load system information</span>
+                    </div>
+                    <div class="system-info-note">
+                        <p><strong>Note:</strong> This page shows the current build host system. The target ISO release is selected separately in the <strong>ISO Builder</strong> page.</p>
+                    </div>
+                </div>
+            </div>
+
             <!-- Page: Configuration Management -->
-            <div class="content-page active" data-page="config">
+            <div class="content-page" data-page="config">
                 <div class="page-header">
                     <h2>Configuration Management</h2>
                 </div>
@@ -171,7 +268,7 @@
                     <div id="userdataStatus" style="display: none;"></div>
                     <div id="userdataResult" style="display: none;"></div>
                 </div>
-                <div class="page-actions" style="margin-top: 20px;">
+                <div class="page-actions" id="userdataActions" style="margin-top: 20px; display: none;">
                     <div class="page-actions-row">
                         <button type="button" class="btn btn-primary" onclick="generateUserDataAndContinue()">Generate user-data</button>
                     </div>
