@@ -193,6 +193,7 @@ Considering that this project is designed for Ubuntu:
 
 - [DM-Crypt Storage Configuration](docs/dm-crypt-configuration.md) — How to configure full-disk encryption with `key` or `keyfile`
 - [Swap Configuration](docs/swap-configuration.md) — How to configure swap file (size, maxsize, filename, force)
+- [Target System Modifications](docs/target-system-modifications.md) — How to modify the target system during installation via `late-commands` (e.g. persistent kernel boot parameters)
 
 ### FAQ
 
