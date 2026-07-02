@@ -1,6 +1,7 @@
 package generator
 
 import (
+	"bufio"
 	"bytes"
 	"compress/gzip"
 	"crypto/md5"
@@ -811,7 +812,8 @@ func (gen *Generator) InjectEmbeddedFiles(files []config.EmbeddedFile) error {
 			return fmt.Errorf("failed to set permissions on %s: %w", f.Path, err)
 		}
 
-		logger.Info(fmt.Sprintf("  injected: %s (perm=%s, encoding=%s, size=%d bytes)", f.Path, permStr, f.Encoding, len(fileContent)))	}
+		logger.Info(fmt.Sprintf("  injected: %s (perm=%s, encoding=%s, size=%d bytes)", f.Path, permStr, f.Encoding, len(fileContent)))
+	}
 
 	logger.Info("Successfully injected all embedded files")
 	return nil
@@ -913,6 +915,108 @@ func touchFile(path string) error {
 	return f.Close()
 }
 
+// grubKernelLineRe matches a single grub/linux line that boots the installer
+// kernel. It captures the leading indent + "linux /casper/(hwe-)vmlinuz"
+// prefix in $1 so we can rewrite just the parameter tail.
+//
+// We intentionally anchor on /casper/(hwe-)?vmlinuz to avoid touching
+// unrelated linux/linux16 lines (e.g. loopback firmware loaders).
+var grubKernelLineRe = regexp.MustCompile(`(?m)^([ \t]*linux[ \t]+/casper/(?:hwe-)?vmlinuz[ \t]+)(.*?)([ \t]*---+[ \t]*)$`)
+
+// hasCloudInitSource reports whether content already carries the NoCloud
+// datasource we inject (recognised both with the GRUB `\;` escape and the
+// bare form used by isolinux).
+func hasCloudInitSource(content []byte) bool {
+	if bytes.Contains(content, []byte("ds=nocloud\\;s=/cdrom/")) {
+		return true
+	}
+	if bytes.Contains(content, []byte("ds=nocloud;s=/cdrom/")) {
+		return true
+	}
+	return false
+}
+
+// rewriteKernelLine rebuilds every kernel parameter tail in the content so
+// each one has the canonical shape:
+//
+//	linux /casper/(hwe-)vmlinuz autoinstall ds=nocloud\;s=/cdrom/ [extra] ---
+//
+// Any number of trailing "---" separators (single, double, with extra
+// whitespace) is collapsed to a single " ---" so GRUB2 receives a clean
+// command line. The call is idempotent: running it twice with the same
+// inputs produces identical bytes.
+//
+// Each kernel line is handled individually so the /casper/vmlinuz and
+// /casper/hwe-vmlinuz entries keep their own prefix and don't get cross-
+// rewritten. This fixes the earlier bug where ReplaceAll with a single
+// prefix turned every line into a /casper/vmlinuz line.
+//
+// cloudInitArg is the autoinstall/cloud-init prefix (e.g. "autoinstall
+// ds=nocloud\;s=/cdrom/"). When a line already carries cloudInitArg we
+// preserve whatever precedes it, otherwise stale parameters would be lost
+// on re-injection. extraBootParams is appended verbatim after the cloud-
+// init prefix.
+func rewriteKernelLine(content []byte, cloudInitArg, extraBootParams string) ([]byte, bool) {
+	if !grubKernelLineRe.Match(content) {
+		return nil, false
+	}
+
+	var out bytes.Buffer
+	out.Grow(len(content))
+	modified := false
+
+	// We process the file line-by-line so multi-byte characters inside
+	// grub.cfg (locale strings, comments) are preserved verbatim, and
+	// each kernel line is rewritten against its own captured prefix.
+	scanner := bufio.NewScanner(bytes.NewReader(content))
+	scanner.Buffer(make([]byte, 0, 64*1024), 4*1024*1024)
+	for scanner.Scan() {
+		line := scanner.Bytes()
+		// Preserve trailing newline semantics: bufio.Scanner strips the
+		// newline, so we add it back unless this is EOF. Empty lines are
+		// passed through untouched.
+		match := grubKernelLineRe.FindSubmatch(line)
+		if match == nil {
+			out.Write(line)
+			out.WriteByte('\n')
+			continue
+		}
+		// Trim trailing whitespace from the captured prefix so we control
+		// the single-space separator before the parameter list ourselves
+		// — otherwise original indentation (e.g. two spaces before "---")
+		// would leak an extra gap into the rebuilt line.
+		prefix := strings.TrimRight(string(match[1]), " \t")
+		tail := strings.TrimSpace(string(match[2]))
+
+		var parts []string
+		if tail != "" && !strings.Contains(tail, cloudInitArg) {
+			for _, tok := range strings.Fields(tail) {
+				if tok == "---" {
+					continue
+				}
+				parts = append(parts, tok)
+			}
+		}
+		parts = append(parts, strings.Fields(cloudInitArg)...)
+		if extra := strings.TrimSpace(extraBootParams); extra != "" {
+			parts = append(parts, strings.Fields(extra)...)
+		}
+
+		out.WriteString(prefix)
+		out.WriteByte(' ')
+		out.WriteString(strings.Join(parts, " "))
+		out.WriteString(" ---\n")
+		modified = true
+	}
+	if err := scanner.Err(); err != nil {
+		return nil, false
+	}
+	if !modified {
+		return nil, false
+	}
+	return out.Bytes(), true
+}
+
 func modifyGrubConfig(path string, insertText string) error {
 	// Check if file exists
 	if _, err := os.Stat(path); os.IsNotExist(err) {
@@ -927,62 +1031,17 @@ func modifyGrubConfig(path string, insertText string) error {
 		return fmt.Errorf("failed to read file %s: %w", filepath.Base(path), err)
 	}
 
-	// Split content into lines
-	lines := strings.Split(string(content), "\n")
-	modified := false
-
-	for i, line := range lines {
-		if line == "" {
-			continue
-		}
-
-		// Preserve original leading indentation (spaces/tabs)
-		leadingTrimmed := strings.TrimLeft(line, " \t")
-		indent := line[:len(line)-len(leadingTrimmed)]
-
-		// Normalize matcher line without altering original content
-		trimmedLine := leadingTrimmed
-
-		// Handle only "append" or "linux" lines ending with "---" (skip linux16)
-		if (strings.HasPrefix(trimmedLine, "append") || strings.HasPrefix(trimmedLine, "linux")) && strings.HasSuffix(strings.TrimRight(line, " \t"), "---") {
-			// Check if autoinstall is already present
-			if !strings.Contains(line, "autoinstall") {
-				// Remove trailing "---" temporarily
-				baseLine := strings.TrimSpace(strings.TrimSuffix(strings.TrimRight(line, " \t"), "---"))
-				// Find the position after "quiet"
-				parts := strings.Fields(baseLine) // Split into words (collapses inner spaces)
-				var newParts []string
-				quietFound := false
-
-				for _, part := range parts {
-					newParts = append(newParts, part)
-					if part == "quiet" {
-						quietFound = true
-						// Insert autoinstall params after "quiet"
-						newParts = append(newParts, insertText)
-					}
-				}
-
-				// If "quiet" is not found, append at the end
-				if !quietFound && len(parts) > 0 {
-					newParts = append(newParts, insertText)
-				}
-
-				// Reconstruct the line with "---"
-				newLine := indent + strings.Join(newParts, " ") + " ---"
-				lines[i] = newLine
-				modified = true
-			}
-		}
-	}
-
-	// If no modification, return early
-	if !modified {
+	// If a previous pass already injected autoinstall + ds=nocloud, the file
+	// is in the right shape — nothing to do.
+	if hasCloudInitSource(content) {
 		return nil
 	}
 
-	// Join lines back and write to file
-	newContent := []byte(strings.Join(lines, "\n"))
+	newContent, ok := rewriteKernelLine(content, insertText, "")
+	if !ok {
+		return nil
+	}
+
 	if err := os.WriteFile(path, newContent, GrubFilePerm); err != nil {
 		return fmt.Errorf("failed to write file %s: %w", filepath.Base(path), err)
 	}
@@ -1206,7 +1265,23 @@ func updateMD5SumFile(md5sumPath, filePath, md5 string) error {
 	return os.WriteFile(md5sumPath, []byte(strings.Join(lines, "\n")), 0644)
 }
 
-func addAutoinstallParameter(filePath string) error {
+// addAutoinstallParameter guarantees every /casper/vmlinuz linux line in the
+// target config carries:
+//
+//	linux /casper/(hwe-)vmlinuz autoinstall ds=nocloud\;s=/cdrom/ [extra] ---
+//
+// It is idempotent and tolerant of the three Ubuntu ISO styles:
+//   - bare linux line with a single trailing "---"
+//   - linux line with "quiet ---" or other parameters followed by "---"
+//   - linux line with "--- ---" (or any number of trailing separators),
+//     which is what newer Ubuntu ISOs emit
+//
+// The function relies on rewriteKernelLine for the actual replacement; if
+// the file does not contain a recognisable kernel line it is a no-op.
+func addAutoinstallParameter(filePath string, extraBootParams string) error {
+	// DEBUG: log what we actually received so we can trace the missing params
+	logger.Info(fmt.Sprintf("addAutoinstallParameter called: file=%s extraBootParams=%q", filepath.Base(filePath), extraBootParams))
+
 	// Skip if file does not exist
 	if _, err := os.Stat(filePath); os.IsNotExist(err) {
 		return nil // file not found, skip
@@ -1218,15 +1293,30 @@ func addAutoinstallParameter(filePath string) error {
 		return err
 	}
 
-	// Only inject if not already present
-	if !bytes.Contains(content, []byte(AutoInstallKeyword)) {
-		// Replace '---' with the injection string
-		newContent := bytes.Replace(content, []byte(GrubReplaceMarker), []byte(AutoInstallInject), -1)
-		if err := os.WriteFile(filePath, newContent, DefaultFilePerm); err != nil {
-			return err
-		}
+	// Always rewrite the kernel line so trailing "--- ---" (or any other
+	// canonical form) collapses to a single " ---". rewriteKernelLine is
+	// idempotent: re-running with the same extraBootParams yields identical
+	// bytes.
+	newContent, ok := rewriteKernelLine(content, "autoinstall ds=nocloud\\;s=/cdrom/", extraBootParams)
+	if !ok {
+		logger.Warn(fmt.Sprintf("no kernel line found in %s, skipping autoinstall injection", filepath.Base(filePath)))
+		return nil
 	}
 
+	// DEBUG: log the result of rewriteKernelLine so we can see if newContent differs
+	logger.Info(fmt.Sprintf("rewriteKernelLine produced %d bytes (was %d bytes)", len(newContent), len(content)))
+
+	if bytes.Equal(content, newContent) {
+		// Already in canonical shape; avoid touching mtime so downstream MD5
+		// recomputation stays a no-op.
+		logger.Info(fmt.Sprintf("bytes.Equal: no change for %s — skipping write", filepath.Base(filePath)))
+		return nil
+	}
+
+	logger.Info(fmt.Sprintf("writing %d bytes to %s", len(newContent), filepath.Base(filePath)))
+	if err := os.WriteFile(filePath, newContent, DefaultFilePerm); err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -1284,7 +1374,7 @@ func (gen *Generator) UpdateGrubMD5Sums(codename string, md5CheckSum bool) error
 }
 
 // AddAutoinstallParameterToKernel injects autoinstall into kernel command lines.
-func (gen *Generator) AddAutoinstallParameterToKernel(codename string) error {
+func (gen *Generator) AddAutoinstallParameterToKernel(codename string, extraBootParams string) error {
 	logger.Info("Adding autoinstall parameter to kernel command line...")
 
 	// Paths to GRUB and related config files
@@ -1292,18 +1382,18 @@ func (gen *Generator) AddAutoinstallParameterToKernel(codename string) error {
 	loopBackConfigPath := gen.Path.LoopBackConfigFile(LoopBackConfigPath)
 	txtConfigPath := gen.Path.TxtConfigFile(TxtConfigPath)
 
-	if err := addAutoinstallParameter(grubConfigPath); err != nil {
+	if err := addAutoinstallParameter(grubConfigPath, extraBootParams); err != nil {
 		return fmt.Errorf("failed to modify grub.cfg: %w", err)
 	}
 
 	// For focal, also update loopback.cfg and txt.cfg
 	if codename == "focal" {
 
-		if err := addAutoinstallParameter(loopBackConfigPath); err != nil {
+		if err := addAutoinstallParameter(loopBackConfigPath, extraBootParams); err != nil {
 			return fmt.Errorf("failed to modify loopback.cfg: %w", err)
 		}
 
-		if err := addAutoinstallParameter(txtConfigPath); err != nil {
+		if err := addAutoinstallParameter(txtConfigPath, extraBootParams); err != nil {
 			return fmt.Errorf("failed to modify txt.cfg: %w", err)
 		}
 	}
@@ -1312,8 +1402,8 @@ func (gen *Generator) AddAutoinstallParameterToKernel(codename string) error {
 }
 
 // AddAutoinstallKernelParams is an alias for AddAutoinstallParameterToKernel.
-func (gen *Generator) AddAutoinstallKernelParams(codename string) error {
-	return gen.AddAutoinstallParameterToKernel(codename)
+func (gen *Generator) AddAutoinstallKernelParams(codename string, extraBootParams string) error {
+	return gen.AddAutoinstallParameterToKernel(codename, extraBootParams)
 }
 
 // ConfigureHWEKernel switches to HWE kernel/initrd if available and requested.

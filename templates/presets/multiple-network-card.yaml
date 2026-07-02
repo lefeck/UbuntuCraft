@@ -17,7 +17,7 @@ autoinstall:
     install: true
   identity:
     hostname: "enterprise-server"
-    # default password: 123456
+    # default password: 12345
     password: "$6$FnHPy.4giHfDcI8r$vllY94AceZFt20M6WzxXKfOLuycO7o8QD8RJJwVs/DSGcHNNF4ilbGrukXPMA3irAdiimHo0fl2zUdkbRO9vh1"
     realname: "admin"
     username: "admin"

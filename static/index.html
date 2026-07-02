@@ -381,6 +381,27 @@
                             </div>
                             <small class="form-help">When enabled, MD5 checksums will be updated for modified GRUB files.</small>
                         </div>
+                        <div class="form-group">
+                            <label class="optional">Serial Console</label>
+                            <div class="switch-container">
+                                <label class="switch">
+                                    <input type="checkbox" id="serialConsoleCheckbox">
+                                    <span class="slider"></span>
+                                </label>
+                                <span class="switch-label">Enable serial console output</span>
+                            </div>
+                            <div class="serial-options" id="serialOptions" style="display: none; margin-top: 12px;">
+                                <label for="baudRateSelect" class="sub-label">Baud Rate</label>
+                                <select id="baudRateSelect" class="form-select">
+                                    <option value="9600">9600</option>
+                                    <option value="19200">19200</option>
+                                    <option value="38400">38400</option>
+                                    <option value="57600">57600</option>
+                                    <option value="115200" selected>115200 (Default)</option>
+                                </select>
+                            </div>
+                            <small class="form-help">Useful for headless servers and BMC/IPMI remote consoles.</small>
+                        </div>
                     </div>
                 </div>
 
@@ -442,6 +463,15 @@
         // Initialize application when page loads
         document.addEventListener('DOMContentLoaded', function() {
             console.log('Page loaded, UbuntuCraft app.js will handle initialization');
+            
+            // Serial Console checkbox toggle
+            const serialConsoleCheckbox = document.getElementById('serialConsoleCheckbox');
+            const serialOptions = document.getElementById('serialOptions');
+            if (serialConsoleCheckbox && serialOptions) {
+                serialConsoleCheckbox.addEventListener('change', function() {
+                    serialOptions.style.display = this.checked ? 'block' : 'none';
+                });
+            }
         });
         
         // Service status indicator functionality

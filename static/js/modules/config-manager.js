@@ -2007,6 +2007,8 @@ async function generateISO() {
     // Get advanced options
     const useHWEKernel = document.getElementById('useHWEKernelCheckbox').checked;
     const md5Checksum = document.getElementById('md5ChecksumCheckbox').checked;
+    const serialConsole = document.getElementById('serialConsoleCheckbox').checked || false;
+    const baudRate = document.getElementById('baudRateSelect').value || '115200';
     
     // Start build process
     buildInProgress = true;
@@ -2029,7 +2031,9 @@ async function generateISO() {
             packageList: packageList,
             useHWEKernel: useHWEKernel,
             md5Checksum: md5Checksum,
-            gpgVerify: gpgVerify
+            gpgVerify: gpgVerify,
+            serialConsole: serialConsole,
+            baudRate: baudRate
         };
         
         console.log('Build data:', data);

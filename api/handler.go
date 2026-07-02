@@ -318,6 +318,8 @@ type GenerateISORequest struct {
 	GPGVerify      bool                  `json:"gpgVerify"`                     // Whether to perform GPG verification
 	Apps           string                `json:"apps"`                          // local build Application packages
 	EmbeddedFiles  []config.EmbeddedFile `json:"embeddedFiles"`                 // Custom files to inject into ISO
+	SerialConsole  bool                  `json:"serialConsole"`                 // Append console=tty0 console=ttyS0,<baudRate>n8 to boot params
+	BaudRate       string                `json:"baudRate"`                      // Serial console baud rate (9600, 19200, 38400, 57600, 115200)
 }
 
 // validateGenerateISORequest Validate ISO generation request parameters
@@ -512,7 +514,7 @@ func (h *Handler) UploadISO(c *gin.Context) {
 		return
 	}
 
-	logger.Info("Successfully uploaded ISO file: ", dst)
+	logger.Info("Successfully uploaded ISO file: %s", dst)
 
 	// Get ISO metadata for codename
 	imageMeta, err := utils.NewImageMeta(dst)
@@ -668,10 +670,23 @@ func (h *Handler) buildProcessWithStatus(request *GenerateISORequest, status *Bu
 		updateProgress(65, "packages", "Extra packages prepared")
 	}
 
+	// Build extra boot params from advanced options
+	var extraParts []string
+	if request.SerialConsole {
+		baudRate := request.BaudRate
+		if baudRate == "" {
+			baudRate = "115200"
+		}
+		extraParts = append(extraParts, fmt.Sprintf("console=tty0 console=ttyS0,%sn8", baudRate))
+	}
+	extraBootParams := strings.Join(extraParts, " ")
+
+	status.Logs = append(status.Logs, "Extra boot params: '"+extraBootParams+"'")
+
 	// Step 6: Add autoinstall parameters to kernel command line
 	status.Steps["kernel"] = "running"
 	status.Logs = append(status.Logs, "Adding autoinstall kernel parameters...")
-	if err := h.generator.AddAutoinstallKernelParams(imageMeta.CodeName); err != nil {
+	if err := h.generator.AddAutoinstallKernelParams(imageMeta.CodeName, extraBootParams); err != nil {
 		return fmt.Errorf("failed to add autoinstall parameter: %w", err)
 	}
 	updateProgress(70, "kernel", "Kernel parameters added")
